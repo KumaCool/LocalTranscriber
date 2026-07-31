@@ -1,50 +1,48 @@
 # LocalTranscriber
 
-LocalTranscriber 是一个面向 CPU 环境的本地离线语音转写工具，基于 FunASR、SenseVoiceSmall、FSMN-VAD 和 CAM++，可生成带匿名说话人标签与句段时间戳的 JSON、Markdown、TXT 和 SRT 文件。
+**English** | [简体中文](README.zh-CN.md)
 
-音频、模型输入和转写结果均可保留在本机。项目不提供 HTTP 服务，也不会主动上传媒体文件。
+LocalTranscriber is a local, offline speech transcription tool designed for CPU-only environments. Built with FunASR, SenseVoiceSmall, FSMN-VAD, and CAM++, it produces JSON, Markdown, TXT, and SRT files with anonymous speaker labels and segment-level timestamps.
 
-## 功能特性
+Audio, model inputs, and transcription results can remain on the local machine. The project does not provide an HTTP service and does not upload media files.
 
-- **本地离线转写**：模型下载完成后，可在断网环境运行。
-- **匿名说话人聚类**：输出 `SPEAKER_00`、`SPEAKER_01` 等任务内标签。
-- **句段时间戳**：提供毫秒级起止时间，不宣称字级强制对齐。
-- **多种导出格式**：规范 JSON、Markdown、纯文本和 SRT 字幕。
-- **可恢复任务状态**：保存任务记录，并限制为单 worker，适合资源有限的 CPU 主机。
-- **媒体预检**：使用 FFmpeg/ffprobe 验证并标准化常见音视频输入。
-- **Hermes Agent 集成**：仓库附带可选的本地转写 Skill；CLI 可独立使用。
+## Features
 
-## 使用限制
+- **Local offline transcription:** Runs without network access after the models have been downloaded.
+- **Anonymous speaker clustering:** Produces task-scoped labels such as `SPEAKER_00` and `SPEAKER_01`.
+- **Segment timestamps:** Provides millisecond start and end times; it does not claim word-level forced alignment.
+- **Multiple export formats:** Canonical JSON, Markdown, plain text, and SRT subtitles.
+- **Recoverable task state:** Persists task records and uses bounded workers for resource-constrained CPU hosts.
+- **Media validation:** Uses FFmpeg/ffprobe to validate and normalize common audio and video inputs.
+- **Hermes Agent integration:** Includes an optional local transcription Skill while keeping the CLI independently usable.
 
-- 说话人标签是匿名聚类结果，不能用于识别真实身份。
-- 多人、短应答及重叠讲话可能出现说话人合并或分配错误。
-- 专业术语、口音、噪声和低质量录音可能降低识别准确率。
-- 输出应经过人工复核，不适用于司法鉴定或其他高风险自动决策。
-- 当前版本要求 Python 3.11，并以 CPU 单任务运行作为主要支持场景。
+## Limitations
 
-## 系统要求
+- Speaker labels are anonymous clustering results and cannot identify real people.
+- Multi-speaker audio, short responses, and overlapping speech may cause speaker merges or assignment errors.
+- Technical terminology, accents, noise, and low-quality recordings may reduce recognition accuracy.
+- Results should be reviewed by a person and are not suitable for forensic analysis or other high-risk automated decisions.
+- The current release requires Python 3.11 and primarily supports CPU-based operation.
 
-- Linux（主要验证平台；其他平台欢迎测试与贡献）
+## Requirements
+
+- Linux (the primary verified platform; testing and contributions for other platforms are welcome)
 - Python 3.11
 - [uv](https://docs.astral.sh/uv/)
-- FFmpeg 与 ffprobe
-- 支持 PyTorch CPU 版本的 x86_64 环境
-- 足够的磁盘空间用于依赖、模型缓存和转写产物
+- FFmpeg and ffprobe
+- An x86_64 environment supported by the PyTorch CPU build
+- Enough disk space for dependencies, model caches, and transcription outputs
 
-Ubuntu/Debian 可安装 FFmpeg：
+Install FFmpeg on Ubuntu/Debian:
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y ffmpeg
 ```
 
-## 安装
+## Installation
 
-当前正式版本可通过以下命令核对：
-
-```bash
-uv run local-transcriber --version
-```
+Clone the repository and install the locked dependencies:
 
 ```bash
 git clone https://github.com/KumaCool/LocalTranscriber.git
@@ -52,22 +50,28 @@ cd LocalTranscriber
 uv sync --locked
 ```
 
-验证环境：
+Check the installed version:
+
+```bash
+uv run local-transcriber --version
+```
+
+Probe the environment:
 
 ```bash
 uv run local-transcriber environment probe \
   --output var/acceptance/environment.json
 ```
 
-首次使用时下载模型：
+Download the models before the first transcription:
 
 ```bash
 uv run local-transcriber models pull
 ```
 
-模型会保存到被 Git 忽略的 `var/cache/models/`。此步骤需要网络连接；完成后可离线转写。
+Models are stored under the Git-ignored `var/cache/models/` directory. This step requires network access; transcription can run offline after the cache is complete.
 
-升级时先停止后台 worker，拉取目标版本并按锁文件同步依赖；如需回滚，切换回旧 tag 后重复同步。任务状态和 canonical JSON 的不兼容变化会在更新日志中提供迁移说明：
+When upgrading, stop the background worker, fetch the intended version, and synchronize from the lock file. To roll back, check out the previous tag and synchronize again:
 
 ```bash
 uv run local-transcriber worker stop
@@ -77,18 +81,18 @@ uv sync --locked
 uv run local-transcriber --version
 ```
 
-完整版本变化见 [`CHANGELOG.md`](CHANGELOG.md)。不要覆盖或移动已有版本 tag。
+See [`CHANGELOG.md`](CHANGELOG.md) for version changes. Do not overwrite or move an existing release tag.
 
-## 快速开始
+## Quick Start
 
-基本转写：
+Transcribe one file:
 
 ```bash
 uv run local-transcriber transcribe /path/to/input.wav \
   --output-dir var/output
 ```
 
-不带 `--bg` 时始终前台等待。多文件和目录使用同一持久化调度器，worker/线程数会同时受 CPU、内存和用户上限约束；默认 CPU 预算不超过逻辑 CPU 的 50%。
+Without `--bg`, the command always waits in the foreground. Multiple files and directories use the same persistent scheduler. Worker and thread counts are constrained by CPU, memory, and user limits; the default CPU budget does not exceed 50% of logical CPUs.
 
 ```bash
 uv run local-transcriber transcribe /path/a.wav /path/b.mp3 \
@@ -98,7 +102,7 @@ uv run local-transcriber transcribe-dir /path/to/media-dir \
   --output-dir var/output
 ```
 
-只有明确需要跨会话或终端断开后继续运行时才传 `--bg`。后台管理器使用本地 Unix IPC，不监听 HTTP/TCP；提交成功会返回 batch/task ID：
+Use `--bg` only when the job must survive terminal disconnection or continue across sessions. The background manager uses local Unix IPC and does not listen on HTTP/TCP. A successful submission returns batch and task IDs:
 
 ```bash
 uv run local-transcriber transcribe-dir /path/to/media-dir \
@@ -109,9 +113,9 @@ uv run local-transcriber batch cancel <batch-id> --runtime-dir var/work --json
 uv run local-transcriber batch retry <batch-id> --runtime-dir var/work --json
 ```
 
-有用户级 systemd 时可用 `worker start/status/stop/restart`；无 systemd 环境应以受跟踪的 `worker run` 前台进程运行管理器，不要使用裸 `&` 或 `nohup`。
+Where user-level systemd is available, use `worker start/status/stop/restart`. Otherwise, run a tracked `worker run` foreground process; do not use a bare `&` or `nohup`.
 
-指定中文：
+Provide a Chinese language hint:
 
 ```bash
 uv run local-transcriber transcribe /path/to/input.wav \
@@ -119,7 +123,7 @@ uv run local-transcriber transcribe /path/to/input.wav \
   --language zh
 ```
 
-已知说话人数量时可显式指定，但这不保证聚类质量更高：
+Provide a known speaker count, noting that this does not guarantee better clustering:
 
 ```bash
 uv run local-transcriber transcribe /path/to/input.wav \
@@ -127,13 +131,13 @@ uv run local-transcriber transcribe /path/to/input.wav \
   --speakers 2
 ```
 
-从已有规范 JSON 重新导出 SRT：
+Re-export SRT from canonical JSON:
 
 ```bash
 uv run local-transcriber export /path/to/result.json --format srt
 ```
 
-转写开始后，CLI 会立即在 stderr 输出任务 ID。可从另一个进程只读查询当前状态，不会启动第二个 worker：
+At startup, the CLI writes the task ID to stderr. A second process can query the persisted state without starting another worker:
 
 ```bash
 uv run local-transcriber job status <job-id> \
@@ -141,44 +145,46 @@ uv run local-transcriber job status <job-id> \
   --json
 ```
 
-状态包含当前阶段、单调百分比、实际处理工作量和 ETA 范围。进度由媒体阶段事件、VAD 语音段和 ASR 实际批次驱动；ETA 是动态工程估算，不保证匀速或精确完成时刻。样本不足时 ETA 保持 `null`/`calculating`，负载波动或停滞时置信度可降为 `low`。只有成功写出全部产物后任务才到 `100%`。
+Status data includes the current stage, monotonic completion percentage, measured work, and an ETA range. Progress is driven by media-stage events, VAD speech segments, and actual ASR batches. ETA is a dynamic engineering estimate, not a constant-rate or exact completion-time guarantee. It remains `null`/`calculating` until enough samples exist, and confidence may fall to `low` during load variation or stalls. A task reaches `100%` only after all outputs have been written successfully.
 
-查看全部命令：
+View all commands:
 
 ```bash
 uv run local-transcriber --help
 uv run local-transcriber transcribe --help
 ```
 
-## 输出文件
+For complete operational instructions, see the **[English user guide](docs/user-guide.md)** or its **[Chinese version](docs/user-guide.zh-CN.md)**.
 
-成功任务的输出目录包含：
+## Output Files
 
-| 文件 | 说明 |
+A successful task directory contains:
+
+| File | Purpose |
 |---|---|
-| `result.json` | 权威结构化结果，包含任务、来源、引擎和句段信息 |
-| `transcript.md` | 便于阅读的 Markdown 转写稿 |
-| `transcript.txt` | 纯文本转写稿 |
-| `transcript.srt` | 字幕文件 |
-| `media.json` | 输入媒体的探测信息 |
+| `result.json` | Authoritative structured result containing task, source, engine, and segment data |
+| `transcript.md` | Human-readable Markdown transcript |
+| `transcript.txt` | Plain-text transcript |
+| `transcript.srt` | Subtitle file |
+| `media.json` | Probed input-media metadata |
 
-转写正文会移除 SenseVoice 富文本标签、过滤纯 `nospeech` 句段，并压缩明显的整句连续重复。这些后处理不会自动修正语义误识别。
+Post-processing removes SenseVoice rich-text tags, filters pure `nospeech` segments, and collapses obvious consecutive whole-sentence repetition. It does not automatically correct semantic recognition errors.
 
-## 数据与隐私
+## Data and Privacy
 
-运行数据保存在 `var/`：
+Runtime data is stored under `var/`:
 
-- `var/cache/`：模型缓存
-- `var/input/`：本地输入文件（可选）
-- `var/work/`：任务状态和临时文件
-- `var/output/`：转写结果
-- `var/acceptance/`：本地验证产物
+- `var/cache/`: model cache
+- `var/input/`: optional local input copies
+- `var/work/`: task state and temporary files
+- `var/output/`: transcription results
+- `var/acceptance/`: local validation artifacts
 
-这些内容默认被 `.gitignore` 排除。请勿提交录音、转写稿、任务记录或包含机器信息的环境报告。使用者负责确认其有权处理输入媒体，并遵守适用的隐私、版权及数据保护规定。
+These paths are excluded by `.gitignore` by default. Do not commit recordings, transcripts, task records, or environment reports containing machine details. Users are responsible for ensuring they are authorized to process input media and comply with applicable privacy, copyright, and data-protection requirements.
 
-## 开发
+## Development
 
-安装开发依赖并运行质量检查：
+Install development dependencies and run the quality checks:
 
 ```bash
 uv sync --locked --dev
@@ -187,34 +193,35 @@ uv run ruff check .
 uv run ruff format --check .
 ```
 
-测试默认不下载模型、不访问网络，也不依赖真实私人录音。真实模型运行记录位于 [`docs/acceptance/`](docs/acceptance/)。
+Tests do not download models, access the network, or depend on private recordings by default. Real-model validation records are stored under [`docs/acceptance/`](docs/acceptance/).
 
-贡献前请阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)。安全问题请按 [`SECURITY.md`](SECURITY.md) 私下报告。
+Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before contributing. Report security issues privately according to [`SECURITY.md`](SECURITY.md).
 
-## 项目文档
+## Documentation
 
-- [技术设计](docs/solution.md)
-- [实现计划与工程记录](docs/plan/01-localtranscriber-implementation-plan.md)
-- [离线验证](docs/acceptance/offline-verification.md)
-- [质量评估矩阵](docs/acceptance/evaluation-matrix.md)
-- [真实进度与动态 ETA 验收](docs/acceptance/progress-and-eta.md)
-- [批量、后台恢复与资源验收](docs/acceptance/batch-background-resources.md)
-- [版本发布验收](docs/acceptance/release.md)
-- [Hermes Agent 可选集成](docs/skills-and-hermes-integration.md)
+- [User guide](docs/user-guide.md) ([简体中文](docs/user-guide.zh-CN.md))
+- [Technical design](docs/design/solution.md)
+- [Implementation plan and engineering record](docs/plan/01-localtranscriber-implementation-plan.md)
+- [Offline verification](docs/acceptance/offline-verification.md)
+- [Quality evaluation matrix](docs/acceptance/evaluation-matrix.md)
+- [Progress and dynamic ETA acceptance](docs/acceptance/progress-and-eta.md)
+- [Batch, background recovery, and resource acceptance](docs/acceptance/batch-background-resources.md)
+- [Release acceptance](docs/acceptance/release.md)
+- [Optional Hermes Agent integration](docs/design/skills-and-hermes-integration.md)
 
-`docs/acceptance/` 和 `docs/plan/` 保存开发与验证证据，不代表对所有硬件、语言和音频条件作出质量保证。
+The documents under `docs/acceptance/` and `docs/plan/` preserve development and validation evidence. They are not quality guarantees for every hardware, language, or recording condition.
 
-## 贡献
+## Contributing
 
-欢迎提交问题、文档改进、平台兼容性报告和代码贡献。请确保：
+Issues, documentation improvements, platform compatibility reports, and code contributions are welcome. Please ensure that you:
 
-- 不提交无权公开的音频或转写内容；
-- 新行为有离线、可重复的测试；
-- 不削弱本地处理、单 worker 和隐私边界；
-- 提交前通过测试、lint 和格式检查。
+- do not submit audio or transcripts you are not authorized to publish;
+- add offline, repeatable tests for new behavior;
+- preserve local processing, bounded-worker, and privacy boundaries;
+- run tests, lint, and formatting checks before submitting changes.
 
-## 许可证
+## License
 
 Copyright © 2026 Shunnketu Kuma.
 
-本项目基于 [MIT License](LICENSE) 开源。依赖组件和下载模型分别适用其各自的许可证；使用者应自行核对并遵守相关条款。
+This project is licensed under the [MIT License](LICENSE). Dependencies and downloaded models are governed by their respective licenses; users are responsible for reviewing and complying with those terms.

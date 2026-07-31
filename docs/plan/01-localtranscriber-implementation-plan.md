@@ -2,7 +2,7 @@
 
 **进度状态：** `已完成`
 
-**关联方案：** [LocalTranscriber：本地离线语音转写方案](../solution.md)
+**关联方案：** [LocalTranscriber：本地离线语音转写方案](../design/solution.md)
 
 ## 1. 文档约束
 
@@ -15,7 +15,7 @@
 
 ## 2. 目标与执行顺序
 
-把 [方案](../solution.md) 落地为可验证的 CPU 离线语音转写工具，依次完成：
+把 [方案](../design/solution.md) 落地为可验证的 CPU 离线语音转写工具，依次完成：
 
 ```text
 阶段 A：环境、依赖与模型冒烟
@@ -33,13 +33,13 @@
 
 | 计划阶段 | 对应方案 | 落实内容 |
 |---|---|---|
-| 阶段 A | [§2 主机约束](../solution.md#2-主机约束2026-07-31-实测)、[§3 技术选型](../solution.md#3-技术选型)、[§6 资源与离线策略](../solution.md#6-资源队列和离线策略)、[§10](../solution.md#10-分阶段实施与验收) | 隔离环境、资源探针、模型预取、组合模型冒烟 |
-| 阶段 B | [§5 输入处理和输出](../solution.md#5-输入处理和输出设计)、[§6](../solution.md#6-资源队列和离线策略)、[§7 项目形态](../solution.md#7-项目形态建议)、[§10](../solution.md#10-分阶段实施与验收) | 媒体标准化、任务状态、CLI、规范 JSON 和导出器 |
-| 阶段 C | [§4 语义](../solution.md#4-说话人和时间戳语义)、[§6](../solution.md#6-资源队列和离线策略)、[§10](../solution.md#10-分阶段实施与验收) | 六类真实样本、质量与资源评估、断网验收 |
-| 阶段 D | [§8 Hermes 集成](../solution.md#8-hermes-集成策略)、[§10](../solution.md#10-分阶段实施与验收)、[集成调查](../skills-and-hermes-integration.md) | 项目调用 Skill、端到端调用、插件/MCP 条件决策 |
-| 阶段 E | [§6 资源、队列和离线策略](../solution.md#6-资源队列和离线策略)、[§7 项目形态](../solution.md#7-项目形态建议)、[§8 Hermes 集成](../solution.md#8-hermes-集成策略) | 阶段化进度、FunASR 原生回调、动态 ETA、持久化状态与 Hermes 进度通知 |
-| 阶段 F | [§6.1 前后台运行](../solution.md#61-前台与后台运行模型)、[§6.2 批量转写](../solution.md#62-多文件与目录批量转写)、[§6.3 并发](../solution.md#63-有界并发模型)、[§6.4 性能配置](../solution.md#64-性能占用配置)、[§6.5 状态](../solution.md#65-任务批次与进度状态) | 默认前台、显式 `--bg`、多文件/目录批量、持久化调度、有界并发和 50% CPU 默认预算 |
-| 阶段 G | [§9 版本、发布与更新日志](../solution.md#9-版本发布与更新日志) | 单一版本源、CLI 版本、CHANGELOG、构建安装验证、tag 与 GitHub Release 门禁 |
+| 阶段 A | [§2 主机约束](../design/solution.md#2-主机约束2026-07-31-实测)、[§3 技术选型](../design/solution.md#3-技术选型)、[§6 资源与离线策略](../design/solution.md#6-资源队列和离线策略)、[§10](../design/solution.md#10-分阶段实施与验收) | 隔离环境、资源探针、模型预取、组合模型冒烟 |
+| 阶段 B | [§5 输入处理和输出](../design/solution.md#5-输入处理和输出设计)、[§6](../design/solution.md#6-资源队列和离线策略)、[§7 项目形态](../design/solution.md#7-项目形态建议)、[§10](../design/solution.md#10-分阶段实施与验收) | 媒体标准化、任务状态、CLI、规范 JSON 和导出器 |
+| 阶段 C | [§4 语义](../design/solution.md#4-说话人和时间戳语义)、[§6](../design/solution.md#6-资源队列和离线策略)、[§10](../design/solution.md#10-分阶段实施与验收) | 六类真实样本、质量与资源评估、断网验收 |
+| 阶段 D | [§8 Hermes 集成](../design/solution.md#8-hermes-集成策略)、[§10](../design/solution.md#10-分阶段实施与验收)、[集成调查](../design/skills-and-hermes-integration.md) | 项目调用 Skill、端到端调用、插件/MCP 条件决策 |
+| 阶段 E | [§6 资源、队列和离线策略](../design/solution.md#6-资源队列和离线策略)、[§7 项目形态](../design/solution.md#7-项目形态建议)、[§8 Hermes 集成](../design/solution.md#8-hermes-集成策略) | 阶段化进度、FunASR 原生回调、动态 ETA、持久化状态与 Hermes 进度通知 |
+| 阶段 F | [§6.1 前后台运行](../design/solution.md#61-前台与后台运行模型)、[§6.2 批量转写](../design/solution.md#62-多文件与目录批量转写)、[§6.3 并发](../design/solution.md#63-有界并发模型)、[§6.4 性能配置](../design/solution.md#64-性能占用配置)、[§6.5 状态](../design/solution.md#65-任务批次与进度状态) | 默认前台、显式 `--bg`、多文件/目录批量、持久化调度、有界并发和 50% CPU 默认预算 |
+| 阶段 G | [§9 版本、发布与更新日志](../design/solution.md#9-版本发布与更新日志) | 单一版本源、CLI 版本、CHANGELOG、构建安装验证、tag 与 GitHub Release 门禁 |
 
 ## 4. 总体进度
 

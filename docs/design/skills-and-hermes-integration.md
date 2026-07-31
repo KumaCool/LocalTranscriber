@@ -205,7 +205,7 @@ hermes mcp configure NAME
 - **Hermes 插件：不启用。** 当前 bundled Meet/Teams 插件处理会议平台字幕或 Graph transcript，不提供本地 FunASR + CAM++ 文件流水线。
 - **MCP：不安装。** 当前官方 Catalog 仅有 Blender、Figma、Linear、n8n、Unreal Engine，没有语音转写 MCP；单机阶段引入 MCP 只会增加协议和常驻组件。
 
-后续扩展门槛和执行顺序见 [LocalTranscriber 实施计划的阶段 D](plan/01-localtranscriber-implementation-plan.md#8-阶段-dhermes-调用集成)。
+后续扩展门槛和执行顺序见 [LocalTranscriber 实施计划的阶段 D](../plan/01-localtranscriber-implementation-plan.md#8-阶段-dhermes-调用集成)。
 
 ## 9. 阶段 D 最终集成决策（2026-07-31）
 
@@ -215,4 +215,4 @@ hermes mcp configure NAME
 - 当前不安装 MCP：`hermes mcp list` 现场确认没有配置 server，也没有多个 MCP 客户端共享需求；
 - 当前不提供 HTTP 服务，保持零新增监听端口和最小暴露面。
 
-详细证据见[阶段 D Hermes 集成验收](acceptance/hermes-integration.md)。
+详细证据见[阶段 D Hermes 集成验收](../acceptance/hermes-integration.md)。

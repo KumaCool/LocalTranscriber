@@ -439,7 +439,7 @@ Hermes 自带 STT 主要用于 Telegram/CLI/Discord 的短语音消息转文字�
 
 本方案的全部实施阶段已合并到一份可跟踪的计划文档：
 
-- [LocalTranscriber 实施计划](plan/01-localtranscriber-implementation-plan.md)
+- [LocalTranscriber 实施计划](../plan/01-localtranscriber-implementation-plan.md)
 
 方案保留目标与验收边界，计划负责阶段顺序、任务和进度状态。同一方案不再拆分为多份计划文档。
 
