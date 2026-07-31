@@ -10,6 +10,9 @@ from pathlib import Path
 
 import psutil
 
+from local_transcriber.config import ResourceConfig
+from local_transcriber.resources import ResourceSnapshot, calculate_budget
+
 
 def _tool(name: str) -> dict[str, object]:
     path = shutil.which(name)
@@ -37,6 +40,15 @@ def collect_environment(path: Path | None = None) -> dict[str, object]:
     memory = psutil.virtual_memory()
     swap = psutil.swap_memory()
     disk = shutil.disk_usage(target)
+    resource_snapshot = ResourceSnapshot(
+        logical_cpu=psutil.cpu_count(logical=True) or 1,
+        available_memory_bytes=memory.available,
+        total_memory_bytes=memory.total,
+    )
+    # The measured Phase C peak was below this conservative scheduling allowance.
+    budget = calculate_budget(
+        ResourceConfig(), resource_snapshot, worker_peak_rss_bytes=3 * 1024**3
+    )
     return {
         "schema_version": "1.0",
         "captured_at": datetime.now(UTC).isoformat(),
@@ -57,7 +69,11 @@ def collect_environment(path: Path | None = None) -> dict[str, object]:
         "python": {"version": platform.python_version(), "executable": sys.executable},
         "tools": {"ffmpeg": _tool("ffmpeg"), "ffprobe": _tool("ffprobe")},
         "accelerator": {"device": "cpu", "nvidia_smi": shutil.which("nvidia-smi")},
-        "policy": {"worker_count": 1, "benchmark_threads": [2, 3]},
+        "policy": {
+            "worker_count": 1,
+            "benchmark_threads": [2, 3],
+            "resource_budget": budget.to_dict(),
+        },
     }
 
 
