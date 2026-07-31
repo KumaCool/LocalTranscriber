@@ -40,6 +40,12 @@ sudo apt-get install -y ffmpeg
 
 ## 安装
 
+当前正式版本可通过以下命令核对：
+
+```bash
+uv run local-transcriber --version
+```
+
 ```bash
 git clone https://github.com/KumaCool/LocalTranscriber.git
 cd LocalTranscriber
@@ -60,6 +66,18 @@ uv run local-transcriber models pull
 ```
 
 模型会保存到被 Git 忽略的 `var/cache/models/`。此步骤需要网络连接；完成后可离线转写。
+
+升级时先停止后台 worker，拉取目标版本并按锁文件同步依赖；如需回滚，切换回旧 tag 后重复同步。任务状态和 canonical JSON 的不兼容变化会在更新日志中提供迁移说明：
+
+```bash
+uv run local-transcriber worker stop
+git fetch --tags origin
+git checkout v0.2.0
+uv sync --locked
+uv run local-transcriber --version
+```
+
+完整版本变化见 [`CHANGELOG.md`](CHANGELOG.md)。不要覆盖或移动已有版本 tag。
 
 ## 快速开始
 
@@ -181,6 +199,7 @@ uv run ruff format --check .
 - [质量评估矩阵](docs/acceptance/evaluation-matrix.md)
 - [真实进度与动态 ETA 验收](docs/acceptance/progress-and-eta.md)
 - [批量、后台恢复与资源验收](docs/acceptance/batch-background-resources.md)
+- [版本发布验收](docs/acceptance/release.md)
 - [Hermes Agent 可选集成](docs/skills-and-hermes-integration.md)
 
 `docs/acceptance/` 和 `docs/plan/` 保存开发与验证证据，不代表对所有硬件、语言和音频条件作出质量保证。

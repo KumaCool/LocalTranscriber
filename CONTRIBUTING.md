@@ -26,12 +26,15 @@ uv sync --locked --dev
 uv run pytest
 uv run ruff check .
 uv run ruff format --check .
+uv run python scripts/check_release.py --allow-unreleased
 ```
 
 测试应保持离线且可重复。默认测试不得下载模型、访问外部服务或依赖私人媒体。需要音频 fixture 时，请使用可再分发的小型合成样本，并清楚记录来源与许可证。
 
 ## 变更原则
 
+- 所有用户可感知的新增、变更、修复、安全影响和兼容性变化先写入 `CHANGELOG.md` 的 `Unreleased`；不得使用“若干优化”等不可验证表述。
+- 不兼容变化必须同时说明迁移方法及受影响的 CLI、配置、任务状态或 canonical JSON schema。
 - 保持本地优先，不默认上传音频或转写结果。
 - 保持单 worker 和明确的资源边界，除非变更包含相应设计和测试。
 - 不把匿名说话人聚类描述为身份识别。

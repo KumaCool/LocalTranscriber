@@ -1,6 +1,6 @@
 # 01 LocalTranscriber 实施计划
 
-**进度状态：** `进行中`
+**进度状态：** `已完成`
 
 **关联方案：** [LocalTranscriber：本地离线语音转写方案](../solution.md)
 
@@ -51,7 +51,7 @@
 | D Hermes 调用集成 | `已完成` | 阶段 C 完成 | [阶段 D 验收记录](../acceptance/hermes-integration.md)：Hermes 后台调用、产物验证和 Telegram 回传通过；无需插件/MCP |
 | E 真实转写进度与动态 ETA | `已完成` | 阶段 D 完成 | [阶段 E 验收记录](../acceptance/progress-and-eta.md)：实际工作量进度、动态 ETA、脱敏状态查询、Hermes 按需报告及三次长音频校准通过 |
 | F 前后台双模式、批量队列与资源控制 | `已完成` | 阶段 E 完成 | [阶段 F 验收记录](../acceptance/batch-background-resources.md)：默认前台、显式 `--bg`、批量、恢复、离线及资源自动降级均通过真实验收 |
-| G 版本化发布与更新日志 | `待开始` | 阶段 F 完成 | 待完成版本一致性、CHANGELOG、构建安装、tag、Release 及远端核验 |
+| G 版本化发布与更新日志 | `已完成` | 阶段 F 完成 | [阶段 G 发布验收](../acceptance/release.md)：0.2.0 版本、CHANGELOG、构建安装、tag、Release 及远端核验通过 |
 
 ---
 
@@ -846,7 +846,7 @@ git diff --check
 
 ## 11. 阶段 G：版本化发布与更新日志
 
-**阶段状态：** `待开始`
+**阶段状态：** `已完成`
 
 ### 11.1 目标
 
@@ -856,7 +856,7 @@ git diff --check
 
 #### G1. 建立单一版本源和 CLI `--version`
 
-**状态：** `待开始`
+**状态：** `已完成`
 
 **预计文件：**
 
@@ -886,7 +886,7 @@ uv run pytest tests/test_version.py tests/test_cli.py -v
 
 #### G2. 创建更新日志和版本一致性检查器
 
-**状态：** `待开始`
+**状态：** `已完成`
 
 **预计文件：**
 
@@ -917,7 +917,7 @@ uv run python scripts/check_release.py --allow-unreleased
 
 #### G3. 自动化构建和干净安装验收
 
-**状态：** `待开始`
+**状态：** `已完成`
 
 **预计文件：**
 
@@ -947,7 +947,7 @@ uv run python scripts/verify_release.py
 
 #### G4. 执行版本发布、远端核验和文档收口
 
-**状态：** `待开始`
+**状态：** `已完成`
 
 **目标：** 将阶段 E/F/G 的用户可见变化作为新的 MINOR 版本发布；目标版本在实施时根据当时最新远端版本确定，不能现在硬编码或复用已有版本。
 

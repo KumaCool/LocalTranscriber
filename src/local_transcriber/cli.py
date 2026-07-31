@@ -9,6 +9,7 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
+from local_transcriber import __version__
 from local_transcriber.batches import BatchStore
 from local_transcriber.config import ResourceConfig
 from local_transcriber.console import ForegroundConsole
@@ -56,6 +57,11 @@ def _add_transcription_options(parser: argparse.ArgumentParser) -> None:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="local-transcriber")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     environment = subparsers.add_parser("environment", help="inspect the local runtime")
