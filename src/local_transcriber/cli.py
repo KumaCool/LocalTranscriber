@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 import uuid
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -11,6 +12,7 @@ from pathlib import Path
 from local_transcriber.batches import BatchStore
 from local_transcriber.config import ResourceConfig
 from local_transcriber.console import ForegroundConsole
+from local_transcriber.daemon import BackgroundManager, service_control
 from local_transcriber.discovery import (
     DiscoveredInput,
     discover_directory,
@@ -20,6 +22,7 @@ from local_transcriber.discovery import (
 from local_transcriber.environment import write_environment_report
 from local_transcriber.executor import ExecutorOptions
 from local_transcriber.exporters import export_result
+from local_transcriber.ipc import IPCError, UnixIPCClient
 from local_transcriber.jobs import JobStore
 from local_transcriber.models import pull_models, write_model_manifest
 from local_transcriber.resources import ResourceSnapshot, calculate_budget
@@ -47,6 +50,8 @@ def _add_transcription_options(parser: argparse.ArgumentParser) -> None:
         help="language hint: auto, zh, en, yue, ja, ko (default: auto)",
     )
     parser.add_argument("--keep-normalized", action="store_true")
+    parser.add_argument("--bg", action="store_true", help="submit to the local background manager")
+    parser.add_argument("--json", action="store_true", dest="as_json")
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -75,7 +80,7 @@ def _parser() -> argparse.ArgumentParser:
     transcribe_dir.add_argument("directory", type=Path)
     transcribe_dir.add_argument("--recursive", action="store_true")
     transcribe_dir.add_argument("--dry-run", action="store_true")
-    transcribe_dir.add_argument("--json", action="store_true", dest="as_json")
+
     _add_transcription_options(transcribe_dir)
     transcribe_dir.add_argument("--max-workers", type=_positive, default=1)
 
@@ -85,6 +90,13 @@ def _parser() -> argparse.ArgumentParser:
     status.add_argument("job_id")
     status.add_argument("--runtime-dir", type=Path, default=Path("var/work"))
     status.add_argument("--json", action="store_true", dest="as_json")
+
+    worker = subparsers.add_parser("worker", help="manage the local background worker")
+    worker_sub = worker.add_subparsers(dest="worker_command", required=True)
+    for action in ("run", "start", "status", "stop", "restart"):
+        worker_action = worker_sub.add_parser(action)
+        worker_action.add_argument("--runtime-dir", type=Path, default=Path("var/work"))
+        worker_action.add_argument("--json", action="store_true", dest="as_json")
 
     export = subparsers.add_parser("export", help="derive a format from canonical JSON")
     export.add_argument("result", type=Path)
@@ -203,6 +215,7 @@ def _run_discovered(args: argparse.Namespace, result) -> int:
         print(budget.rejection_reason, file=sys.stderr)
         return 4
     batch_id = _new_id("batch")
+    run_mode = "background" if args.bg else "foreground"
     store = JobStore(args.runtime_dir)
     task_ids: list[str] = []
     for item in result.accepted:
@@ -213,6 +226,7 @@ def _run_discovered(args: argparse.Namespace, result) -> int:
             str(item.path.resolve()),
             output_path_for(args.output_dir, item, job_id),
             batch_id=batch_id,
+            run_mode=run_mode,
             input_order=item.input_order,
             effective_budget=budget.to_dict(),
         )
@@ -220,10 +234,59 @@ def _run_discovered(args: argparse.Namespace, result) -> int:
     BatchStore(args.runtime_dir).create(
         batch_id,
         task_ids=tuple(task_ids),
-        run_mode="foreground",
+        run_mode=run_mode,
         effective_budget=budget.to_dict(),
         output_dir=args.output_dir,
     )
+    if args.bg:
+        request: dict[str, object] = {
+            "action": "submit",
+            "batch_id": batch_id,
+            "cache_dir": str(args.cache_dir),
+            "threads": budget.threads_per_worker,
+            "speakers": args.speakers,
+            "language": args.language,
+            "keep_normalized": args.keep_normalized,
+        }
+        client = UnixIPCClient(args.runtime_dir)
+        try:
+            response = client.request(request)
+        except IPCError as first_error:
+            started = service_control("start", args.runtime_dir)
+            if started.get("ok") is not True:
+                print(
+                    f"background batch not submitted: {started.get('error', str(first_error))}",
+                    file=sys.stderr,
+                )
+                return 4
+            deadline = time.monotonic() + 2.0
+            while True:
+                try:
+                    response = client.request(request)
+                    break
+                except IPCError as exc:
+                    if time.monotonic() >= deadline:
+                        print(f"background batch not submitted: {exc}", file=sys.stderr)
+                        return 4
+                    time.sleep(0.05)
+        if response.get("ok") is not True:
+            error = response.get("error", "manager rejected request")
+            print(
+                f"background batch not submitted: {error}",
+                file=sys.stderr,
+            )
+            return 4
+        payload = {
+            "mode": "background",
+            "batch_id": batch_id,
+            "task_ids": task_ids,
+            "status_command": f"local-transcriber batch status {batch_id}",
+        }
+        if args.as_json:
+            print(json.dumps(payload, ensure_ascii=False))
+        else:
+            print(f"background batch submitted: {batch_id}; status: {payload['status_command']}")
+        return 0
     console = ForegroundConsole(args.runtime_dir, batch_id)
     try:
         report = BoundedScheduler(args.runtime_dir).run_batch(
@@ -274,7 +337,11 @@ def _run_discovered(args: argparse.Namespace, result) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
+    arguments = sys.argv[1:] if argv is None else argv
+    parser = _parser()
+    if any(argument.startswith("—") for argument in arguments):
+        parser.error("Unicode long-dash options are not supported")
+    args = parser.parse_args(arguments)
     if args.command == "environment" and args.environment_command == "probe":
         report = write_environment_report(args.output)
         print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -284,6 +351,22 @@ def main(argv: list[str] | None = None) -> int:
         manifest = write_model_manifest(args.manifest, args.cache_dir)
         print(json.dumps(manifest, ensure_ascii=False, indent=2))
         return 0
+    if args.command == "worker":
+        if args.worker_command == "run":
+            manager = BackgroundManager(args.runtime_dir)
+            try:
+                manager.run()
+            finally:
+                manager.close()
+            return 0
+        result = service_control(args.worker_command, args.runtime_dir)
+        if args.as_json:
+            print(json.dumps(result, ensure_ascii=False))
+        elif result.get("ok"):
+            print(f"worker {args.worker_command}: ok")
+        else:
+            print(str(result.get("error", "worker command failed")), file=sys.stderr)
+        return 0 if result.get("ok") else 4
     if args.command == "transcribe":
         result = discover_explicit(args.inputs)
         return _run_discovered(args, result)

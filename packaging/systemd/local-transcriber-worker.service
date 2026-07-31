@@ -1,0 +1,21 @@
+[Unit]
+Description=LocalTranscriber background worker
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=local-transcriber worker run --runtime-dir=%h/.local/state/local-transcriber
+Restart=on-failure
+RestartSec=5s
+UMask=0077
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/state/local-transcriber %h/.cache/local-transcriber
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX
+CPUQuota=50%
+MemoryHigh=80%
+
+[Install]
+WantedBy=default.target

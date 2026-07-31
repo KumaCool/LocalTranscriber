@@ -451,3 +451,167 @@ def test_batch_exit_code_has_stable_severity(codes: list[int], expected: int) ->
     from local_transcriber.cli import _batch_exit_code
 
     assert _batch_exit_code(codes) == expected
+
+
+def test_explicit_bg_persists_background_batch_and_returns_ids_without_running_engine(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    source = tmp_path / "meeting.wav"
+    _fixture(source)
+    submitted: dict[str, object] = {}
+
+    def request(self, payload):
+        submitted.update(payload)
+        return {"ok": True, "batch_id": payload["batch_id"]}
+
+    monkeypatch.setattr("local_transcriber.cli.UnixIPCClient.request", request)
+    monkeypatch.setattr(
+        "local_transcriber.cli.BoundedScheduler.run_batch",
+        lambda *args, **kwargs: pytest.fail("background submission must not run the engine"),
+    )
+    runtime = tmp_path / "runtime"
+
+    assert (
+        main(
+            [
+                "transcribe",
+                str(source),
+                "--bg",
+                "--json",
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--runtime-dir",
+                str(runtime),
+            ]
+        )
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+    batch = json.loads(next((runtime / "batches").glob("*.json")).read_text())
+    job = json.loads(next((runtime / "jobs").glob("*.json")).read_text())
+    assert payload["mode"] == "background"
+    assert payload["batch_id"] == batch["id"] == submitted["batch_id"]
+    assert payload["task_ids"] == [job["id"]]
+    assert batch["run_mode"] == job["run_mode"] == "background"
+    assert payload["status_command"] == f"local-transcriber batch status {batch['id']}"
+
+
+def test_bg_manager_failure_is_reported_without_false_submission(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    source = tmp_path / "meeting.wav"
+    _fixture(source)
+
+    def unavailable(self, payload):
+        from local_transcriber.ipc import IPCError
+
+        raise IPCError("background manager is not available")
+
+    monkeypatch.setattr("local_transcriber.cli.UnixIPCClient.request", unavailable)
+    monkeypatch.setattr(
+        "local_transcriber.cli.service_control",
+        lambda action, runtime: {"ok": False, "error": "user systemd is not available"},
+    )
+    runtime = tmp_path / "runtime"
+    code = main(
+        [
+            "transcribe",
+            str(source),
+            "--bg",
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--runtime-dir",
+            str(runtime),
+        ]
+    )
+    assert code == 4
+    assert "not submitted" in capsys.readouterr().err
+    assert json.loads(next((runtime / "batches").glob("*.json")).read_text())["status"] == "queued"
+
+
+def test_bg_starts_user_manager_then_retries_submission(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "meeting.wav"
+    _fixture(source)
+    requests = 0
+    starts: list[tuple[str, Path]] = []
+
+    def request(self, payload):
+        nonlocal requests
+        requests += 1
+        if requests == 1:
+            from local_transcriber.ipc import IPCError
+
+            raise IPCError("background manager is not available")
+        return {"ok": True, "batch_id": payload["batch_id"]}
+
+    def control(action, runtime):
+        starts.append((action, runtime))
+        return {"ok": True}
+
+    monkeypatch.setattr("local_transcriber.cli.UnixIPCClient.request", request)
+    monkeypatch.setattr("local_transcriber.cli.service_control", control)
+    runtime = tmp_path / "runtime"
+    assert (
+        main(
+            [
+                "transcribe",
+                str(source),
+                "--bg",
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--runtime-dir",
+                str(runtime),
+            ]
+        )
+        == 0
+    )
+    assert starts == [("start", runtime)]
+    assert requests == 2
+
+
+@pytest.mark.parametrize("flag", ["--background", "—bg"])
+def test_transcribe_rejects_bg_aliases(flag: str, tmp_path: Path) -> None:
+    with pytest.raises(SystemExit):
+        main(
+            [
+                "transcribe",
+                str(tmp_path / "input.wav"),
+                flag,
+                "--output-dir",
+                str(tmp_path / "out"),
+            ]
+        )
+
+
+def test_worker_cli_exposes_run_and_lifecycle_commands(tmp_path: Path, monkeypatch, capsys) -> None:
+    calls: list[tuple[str, Path]] = []
+
+    def control(action, runtime):
+        calls.append((action, runtime))
+        return {"ok": True, "running": action in {"start", "restart", "status"}}
+
+    monkeypatch.setattr("local_transcriber.cli.service_control", control)
+    runtime = tmp_path / "runtime"
+    for action in ("start", "status", "stop", "restart"):
+        assert main(["worker", action, "--runtime-dir", str(runtime), "--json"]) == 0
+        assert json.loads(capsys.readouterr().out)["ok"] is True
+    assert calls == [(action, runtime) for action in ("start", "status", "stop", "restart")]
+
+
+def test_worker_run_owns_manager_in_current_process(tmp_path: Path, monkeypatch) -> None:
+    events: list[str] = []
+
+    class FakeManager:
+        def __init__(self, runtime):
+            events.append(f"init:{runtime}")
+
+        def run(self):
+            events.append("run")
+
+        def close(self):
+            events.append("close")
+
+    monkeypatch.setattr("local_transcriber.cli.BackgroundManager", FakeManager)
+    runtime = tmp_path / "runtime"
+    assert main(["worker", "run", "--runtime-dir", str(runtime)]) == 0
+    assert events == [f"init:{runtime}", "run", "close"]
