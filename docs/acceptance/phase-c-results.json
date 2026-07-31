@@ -1,0 +1,165 @@
+{
+  "schema_version": 1,
+  "runs": [
+    {
+      "run": "quiet-two-speaker",
+      "source": "quiet-two-speaker.wav",
+      "duration_s": 23.77,
+      "threads": 2,
+      "speaker_constraint": null,
+      "elapsed_s": 24.28,
+      "rtf": 1.0215,
+      "peak_rss_kib": 3270352,
+      "segments": 2,
+      "speaker_labels": [
+        "SPEAKER_00",
+        "SPEAKER_01"
+      ]
+    },
+    {
+      "run": "noisy-two-speaker",
+      "source": "noisy-two-speaker.wav",
+      "duration_s": 23.77,
+      "threads": 2,
+      "speaker_constraint": null,
+      "elapsed_s": 23.8,
+      "rtf": 1.0013,
+      "peak_rss_kib": 3270364,
+      "segments": 2,
+      "speaker_labels": [
+        "SPEAKER_00",
+        "SPEAKER_04"
+      ]
+    },
+    {
+      "run": "multi-speaker",
+      "source": "multi-speaker.wav",
+      "duration_s": 15.843,
+      "threads": 2,
+      "speaker_constraint": null,
+      "elapsed_s": 22.69,
+      "rtf": 1.4322,
+      "peak_rss_kib": 3269676,
+      "segments": 1,
+      "speaker_labels": [
+        "SPEAKER_00"
+      ]
+    },
+    {
+      "run": "overlap",
+      "source": "overlap.wav",
+      "duration_s": 6.812,
+      "threads": 2,
+      "speaker_constraint": null,
+      "elapsed_s": 20.7,
+      "rtf": 3.0388,
+      "peak_rss_kib": 3270200,
+      "segments": 1,
+      "speaker_labels": [
+        "SPEAKER_00"
+      ]
+    },
+    {
+      "run": "code-switch",
+      "source": "code-switch.wav",
+      "duration_s": 13.492,
+      "threads": 2,
+      "speaker_constraint": null,
+      "elapsed_s": 21.29,
+      "rtf": 1.578,
+      "peak_rss_kib": 3269860,
+      "segments": 2,
+      "speaker_labels": [
+        "SPEAKER_00"
+      ]
+    },
+    {
+      "run": "telephone-alaw",
+      "source": "telephone-alaw.wav",
+      "duration_s": 23.77,
+      "threads": 2,
+      "speaker_constraint": null,
+      "elapsed_s": 22.14,
+      "rtf": 0.9314,
+      "peak_rss_kib": 3269992,
+      "segments": 2,
+      "speaker_labels": [
+        "SPEAKER_00",
+        "SPEAKER_02"
+      ]
+    },
+    {
+      "run": "compare-t2-sauto",
+      "source": "quiet-two-speaker.wav",
+      "duration_s": 23.77,
+      "threads": 2,
+      "speaker_constraint": null,
+      "elapsed_s": 20.93,
+      "rtf": 0.8805,
+      "peak_rss_kib": 3269624,
+      "segments": 2,
+      "speaker_labels": [
+        "SPEAKER_00",
+        "SPEAKER_01"
+      ]
+    },
+    {
+      "run": "compare-t2-s2",
+      "source": "quiet-two-speaker.wav",
+      "duration_s": 23.77,
+      "threads": 2,
+      "speaker_constraint": 2,
+      "elapsed_s": 23.09,
+      "rtf": 0.9714,
+      "peak_rss_kib": 3269612,
+      "segments": 2,
+      "speaker_labels": [
+        "SPEAKER_00"
+      ]
+    },
+    {
+      "run": "compare-t3-sauto",
+      "source": "quiet-two-speaker.wav",
+      "duration_s": 23.77,
+      "threads": 3,
+      "speaker_constraint": null,
+      "elapsed_s": 22.81,
+      "rtf": 0.9596,
+      "peak_rss_kib": 3270096,
+      "segments": 2,
+      "speaker_labels": [
+        "SPEAKER_00",
+        "SPEAKER_01"
+      ]
+    },
+    {
+      "run": "compare-t3-s2",
+      "source": "quiet-two-speaker.wav",
+      "duration_s": 23.77,
+      "threads": 3,
+      "speaker_constraint": 2,
+      "elapsed_s": 21.3,
+      "rtf": 0.8961,
+      "peak_rss_kib": 3270004,
+      "segments": 2,
+      "speaker_labels": [
+        "SPEAKER_00"
+      ]
+    },
+    {
+      "run": "offline-unshare",
+      "source": "quiet-two-speaker.wav",
+      "duration_s": 23.77,
+      "threads": 2,
+      "speaker_constraint": null,
+      "elapsed_s": 20.7,
+      "rtf": 0.8708,
+      "peak_rss_kib": 3269788,
+      "segments": 2,
+      "speaker_labels": [
+        "SPEAKER_00",
+        "SPEAKER_01"
+      ]
+    }
+  ]
+}

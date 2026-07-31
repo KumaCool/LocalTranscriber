@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Runtime data and potentially sensitive media
+var/cache/**
+var/input/**
+var/work/**
+var/output/**
+var/acceptance/**
+!var/cache/.gitkeep
+!var/input/.gitkeep
+!var/work/.gitkeep
+!var/output/.gitkeep
+!var/acceptance/.gitkeep
+
+# Local model/tool caches
+.cache/
