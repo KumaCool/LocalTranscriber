@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import fcntl
 import json
+import os
+import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TextIO
+
+import psutil
 
 
 class JobBusyError(RuntimeError):
@@ -32,21 +36,53 @@ class StoredJob:
     eta_high_seconds: int | None = None
     eta_confidence: str = "calculating"
     updated_at: str | None = None
+    schema_version: int = 2
+    batch_id: str | None = None
+    run_mode: str = "foreground"
+    input_order: int = 0
+    effective_budget: dict[str, object] = field(default_factory=dict)
+    attempt: int = 1
+    retry_of: str | None = None
+    artifact_paths: dict[str, str] = field(default_factory=dict)
+    revision: int = 0
 
 
 _TRANSITIONS = {
     "queued": {"running", "failed", "cancelled"},
-    "running": {"succeeded", "failed", "cancelled"},
+    "running": {"succeeded", "failed", "cancelled", "interrupted"},
     "succeeded": set(),
     "failed": set(),
     "cancelled": set(),
+    "interrupted": set(),
 }
-
 _STAGES = {"probing", "normalizing", "loading", "vad", "transcribing", "finalizing"}
 
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _durable_json_write(path: Path, payload: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 class JobStore:
@@ -62,21 +98,42 @@ class JobStore:
         return self.jobs_dir / f"{job_id}.json"
 
     def _write(self, job: StoredJob) -> None:
-        path = self._path(job.id)
-        temporary = path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(asdict(job), ensure_ascii=False, indent=2) + "\n")
-        temporary.replace(path)
+        _durable_json_write(self._path(job.id), asdict(job))
 
-    def create(self, job_id: str, input_path: str, output_dir: Path) -> StoredJob:
+    def create(
+        self,
+        job_id: str,
+        input_path: str,
+        output_dir: Path,
+        *,
+        batch_id: str | None = None,
+        run_mode: str = "foreground",
+        input_order: int = 0,
+        effective_budget: dict[str, object] | None = None,
+        attempt: int = 1,
+        retry_of: str | None = None,
+        artifact_paths: dict[str, str] | None = None,
+    ) -> StoredJob:
         path = self._path(job_id)
         if path.exists():
             raise ValueError(f"job already exists: {job_id}")
+        if run_mode not in {"foreground", "background"}:
+            raise ValueError(f"unsupported run mode: {run_mode}")
+        if input_order < 0 or attempt < 1:
+            raise ValueError("input order must be non-negative and attempt must be positive")
         job = StoredJob(
             id=job_id,
             input_path=input_path,
             output_dir=str(output_dir),
             status="queued",
             created_at=_now(),
+            batch_id=batch_id,
+            run_mode=run_mode,
+            input_order=input_order,
+            effective_budget=dict(effective_budget or {}),
+            attempt=attempt,
+            retry_of=retry_of,
+            artifact_paths=dict(artifact_paths or {}),
         )
         self._write(job)
         return job
@@ -92,6 +149,15 @@ class JobStore:
             payload.setdefault("eta_high_seconds", None)
             payload.setdefault("eta_confidence", "calculating")
             payload.setdefault("updated_at", payload["created_at"])
+            payload.setdefault("schema_version", 1)
+            payload.setdefault("batch_id", None)
+            payload.setdefault("run_mode", "foreground")
+            payload.setdefault("input_order", 0)
+            payload.setdefault("effective_budget", {})
+            payload.setdefault("attempt", 1)
+            payload.setdefault("retry_of", None)
+            payload.setdefault("artifact_paths", {})
+            payload.setdefault("revision", 0)
             return StoredJob(**payload)
         except FileNotFoundError as exc:
             raise ValueError(f"unknown job: {job_id}") from exc
@@ -131,19 +197,31 @@ class JobStore:
                 raise ValueError(f"unsupported ETA confidence: {eta_confidence}")
             values["eta_confidence"] = eta_confidence
         values["updated_at"] = _now()
+        values["revision"] = current.revision + 1
         updated = StoredJob(**values)
         self._write(updated)
         return updated
 
-    def transition(self, job_id: str, status: str, error: str | None = None) -> StoredJob:
+    def transition(
+        self,
+        job_id: str,
+        status: str,
+        error: str | None = None,
+        *,
+        expected_revision: int | None = None,
+    ) -> StoredJob:
         current = self.load(job_id)
+        if expected_revision is not None and current.revision != expected_revision:
+            raise ValueError(
+                f"job revision conflict: expected {expected_revision}, found {current.revision}"
+            )
         if status not in _TRANSITIONS[current.status]:
             raise ValueError(f"invalid job transition: {current.status} -> {status}")
         values = asdict(current)
         values["status"] = status
         if status == "running":
             values["started_at"] = _now()
-        if status in {"succeeded", "failed", "cancelled"}:
+        if status in {"succeeded", "failed", "cancelled", "interrupted"}:
             values["finished_at"] = _now()
         if status == "succeeded":
             values["progress_percent"] = 100.0
@@ -152,9 +230,40 @@ class JobStore:
             values["eta_confidence"] = "normal"
         values["updated_at"] = _now()
         values["error"] = error
+        values["revision"] = current.revision + 1
         updated = StoredJob(**values)
         self._write(updated)
         return updated
+
+    @contextmanager
+    def scheduler(self, owner_id: str) -> Iterator[None]:
+        lock_path = self.root / "scheduler.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        handle: TextIO = lock_path.open("a+", encoding="utf-8")
+        try:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise JobBusyError("another scheduler owns this runtime") from exc
+            process = psutil.Process()
+            owner = {
+                "owner_id": owner_id,
+                "pid": process.pid,
+                "process_started_at": process.create_time(),
+                "acquired_at": _now(),
+            }
+            handle.seek(0)
+            handle.truncate()
+            json.dump(owner, handle, ensure_ascii=False)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+            yield
+        finally:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            finally:
+                handle.close()
 
     @contextmanager
     def worker(self, job_id: str) -> Iterator[None]:
