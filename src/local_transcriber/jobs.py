@@ -202,6 +202,16 @@ class JobStore:
         self._write(updated)
         return updated
 
+    def update_artifacts(self, job_id: str, artifact_paths: dict[str, str]) -> StoredJob:
+        current = self.load(job_id)
+        values = asdict(current)
+        values["artifact_paths"] = dict(artifact_paths)
+        values["updated_at"] = _now()
+        values["revision"] = current.revision + 1
+        updated = StoredJob(**values)
+        self._write(updated)
+        return updated
+
     def transition(
         self,
         job_id: str,

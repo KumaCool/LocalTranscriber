@@ -646,7 +646,7 @@ uv run pytest tests/test_discovery.py tests/test_media.py tests/test_cli.py -v
 
 #### F4. 提取单文件执行器并实现统一有界调度器
 
-**状态：** `待开始`
+**状态：** `已完成（2026-08-01）`
 
 **目标：** 让前台和后台共用同一个调度器，同时在多个文件间提供受 CPU/内存预算约束的并发。
 

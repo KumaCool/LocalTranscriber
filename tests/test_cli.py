@@ -41,7 +41,7 @@ def test_transcribe_cli_writes_canonical_result_and_exports(tmp_path: Path, monk
             assert path.name == "normalized.wav"
             return [{"start_ms": 0, "end_ms": 90, "speaker": "SPEAKER_00", "text": "你好"}]
 
-    monkeypatch.setattr("local_transcriber.cli.TranscriptionEngine", FakeEngine)
+    monkeypatch.setattr("local_transcriber.executor.TranscriptionEngine", FakeEngine)
     output = tmp_path / "output"
 
     arguments = [
@@ -96,7 +96,7 @@ def test_transcribe_cli_records_model_error(tmp_path: Path, monkeypatch, capsys)
         def transcribe(self, path: Path, progress_callback=None):
             raise RuntimeError("model failed")
 
-    monkeypatch.setattr("local_transcriber.cli.TranscriptionEngine", BrokenEngine)
+    monkeypatch.setattr("local_transcriber.executor.TranscriptionEngine", BrokenEngine)
 
     code = main(
         [
@@ -129,8 +129,8 @@ def test_transcribe_cli_does_not_succeed_before_all_exports_are_written(
     def broken_export(*args, **kwargs):
         raise OSError("disk full")
 
-    monkeypatch.setattr("local_transcriber.cli.TranscriptionEngine", FakeEngine)
-    monkeypatch.setattr("local_transcriber.cli.export_result", broken_export)
+    monkeypatch.setattr("local_transcriber.executor.TranscriptionEngine", FakeEngine)
+    monkeypatch.setattr("local_transcriber.executor.export_result", broken_export)
     runtime = tmp_path / "runtime"
 
     code = main(
@@ -173,7 +173,7 @@ def test_transcribe_cli_reports_estimated_duration_before_engine_runs(
         def transcribe(self, path: Path, progress_callback=None):
             return [{"start_ms": 0, "end_ms": 90, "speaker": "SPEAKER_00", "text": "你好"}]
 
-    monkeypatch.setattr("local_transcriber.cli.TranscriptionEngine", FakeEngine)
+    monkeypatch.setattr("local_transcriber.executor.TranscriptionEngine", FakeEngine)
     assert (
         main(
             [
@@ -241,7 +241,7 @@ def test_transcribe_accepts_multiple_inputs_in_user_order(tmp_path: Path, monkey
             received.append(path)
             return [{"start_ms": 0, "end_ms": 90, "speaker": "SPEAKER_00", "text": "你好"}]
 
-    monkeypatch.setattr("local_transcriber.cli.TranscriptionEngine", FakeEngine)
+    monkeypatch.setattr("local_transcriber.executor.TranscriptionEngine", FakeEngine)
 
     code = main(
         [
@@ -281,7 +281,7 @@ def test_transcribe_dir_dry_run_is_read_only_and_does_not_load_model(
         def __init__(self, **kwargs):
             raise AssertionError("dry-run must not load the model")
 
-    monkeypatch.setattr("local_transcriber.cli.TranscriptionEngine", ForbiddenEngine)
+    monkeypatch.setattr("local_transcriber.executor.TranscriptionEngine", ForbiddenEngine)
     runtime = tmp_path / "runtime"
     output = tmp_path / "output"
 
@@ -325,7 +325,7 @@ def test_transcribe_cli_persists_event_driven_progress(tmp_path: Path, monkeypat
             progress_callback(3, 4)
             return [{"start_ms": 0, "end_ms": 90, "speaker": "SPEAKER_00", "text": "你好"}]
 
-    monkeypatch.setattr("local_transcriber.cli.TranscriptionEngine", FakeEngine)
+    monkeypatch.setattr("local_transcriber.executor.TranscriptionEngine", FakeEngine)
     runtime = tmp_path / "runtime"
     assert (
         main(
