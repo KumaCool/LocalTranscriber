@@ -51,7 +51,7 @@
 | D Hermes 调用集成 | `已完成` | 阶段 C 完成 | [阶段 D 验收记录](../acceptance/hermes-integration.md)：Hermes 后台调用、产物验证和 Telegram 回传通过；无需插件/MCP |
 | E 真实转写进度与动态 ETA | `已完成` | 阶段 D 完成 | [阶段 E 验收记录](../acceptance/progress-and-eta.md)：实际工作量进度、动态 ETA、脱敏状态查询、Hermes 按需报告及三次长音频校准通过 |
 | F 前后台双模式、批量队列与资源控制 | `已完成` | 阶段 E 完成 | [阶段 F 验收记录](../acceptance/batch-background-resources.md)：默认前台、显式 `--bg`、批量、恢复、离线及资源自动降级均通过真实验收 |
-| G 版本化发布与更新日志 | `已完成` | 阶段 F 完成 | [阶段 G 发布验收](../acceptance/release.md)：0.2.0 版本、CHANGELOG、构建安装、tag、Release 及远端核验通过 |
+| G 版本化发布与更新日志 | `已完成` | 阶段 F 完成 | [阶段 G 发布验收](../acceptance/release.md)：0.2.1 版本、CHANGELOG、构建安装、tag、Release 及远端核验通过 |
 
 ---
 

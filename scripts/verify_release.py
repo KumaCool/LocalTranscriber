@@ -48,11 +48,14 @@ def require_archive_files(path: Path, kind: str) -> None:
         if len(roots) != 1:
             raise RuntimeError(f"{path.name} must have exactly one sdist root")
         root = next(iter(roots))
-        normalized = {
-            name.removeprefix(f"{root}/").removeprefix("src/")
-            for name in names
-            if name.startswith(f"{root}/")
-        }
+        normalized = set()
+        for name in names:
+            if not name.startswith(f"{root}/"):
+                continue
+            relative = name.removeprefix(f"{root}/")
+            if relative.startswith("src/local_transcriber/"):
+                relative = relative.removeprefix("src/")
+            normalized.add(relative)
         package_prefix = "local_transcriber/"
     missing = [required for required in REQUIRED_ARCHIVE_FILES[kind] if required not in normalized]
     missing.extend(

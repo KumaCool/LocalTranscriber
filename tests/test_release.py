@@ -25,7 +25,7 @@ def test_changelog_has_unreleased_and_descending_unique_releases() -> None:
     document = release.parse_changelog(ROOT / "CHANGELOG.md")
 
     assert document.has_unreleased
-    assert document.versions == ("0.2.0", "0.1.0")
+    assert document.versions == ("0.2.1", "0.2.0", "0.1.0")
     assert len(document.versions) == len(set(document.versions))
 
 
@@ -36,7 +36,7 @@ def test_release_checker_accepts_current_release_and_rejects_existing_tag(tmp_pa
         sys.executable,
         "scripts/check_release.py",
         "--release",
-        "0.2.0",
+        "0.2.1",
         "--remote",
         str(remote),
     ]
@@ -44,7 +44,7 @@ def test_release_checker_accepts_current_release_and_rejects_existing_tag(tmp_pa
     assert accepted.returncode == 0, accepted.stderr
 
     rejected = subprocess.run(
-        [*command, "--existing-tag", "v0.2.0"],
+        [*command, "--existing-tag", "v0.2.1"],
         cwd=ROOT,
         text=True,
         capture_output=True,
@@ -114,3 +114,20 @@ def test_archive_check_rejects_suffix_lookalikes_and_incomplete_package(tmp_path
             archive.writestr(name, "x")
     with pytest.raises(RuntimeError):
         verifier.require_archive_files(wheel, "wheel")
+
+    sdist = tmp_path / "fake.tar.gz"
+    import io
+    import tarfile
+
+    with tarfile.open(sdist, "w:gz") as archive:
+        for name in (
+            "fake/src/LICENSE",
+            "fake/src/README.md",
+            "fake/src/CHANGELOG.md",
+            *(f"fake/src/local_transcriber/{module}" for module in verifier.PACKAGE_MODULES),
+        ):
+            info = tarfile.TarInfo(name)
+            info.size = 1
+            archive.addfile(info, io.BytesIO(b"x"))
+    with pytest.raises(RuntimeError):
+        verifier.require_archive_files(sdist, "sdist")
