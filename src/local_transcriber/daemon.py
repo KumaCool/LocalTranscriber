@@ -5,12 +5,14 @@ import os
 import subprocess
 import sys
 import threading
+import uuid
 from pathlib import Path
 from typing import TextIO
 
 from local_transcriber.batches import BatchStore
 from local_transcriber.executor import ExecutorOptions
 from local_transcriber.ipc import UnixIPCServer, socket_path
+from local_transcriber.jobs import JobStore
 from local_transcriber.scheduler import BoundedScheduler
 
 
@@ -19,7 +21,7 @@ class ManagerAlreadyRunning(RuntimeError):
 
 
 class BackgroundManager:
-    def __init__(self, runtime_dir: Path) -> None:
+    def __init__(self, runtime_dir: Path, *, recover: bool = True) -> None:
         self.runtime_dir = runtime_dir
         self.runtime_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         os.chmod(self.runtime_dir, 0o700)
@@ -32,6 +34,38 @@ class BackgroundManager:
         self._server = UnixIPCServer(runtime_dir, self.handle)
         self._stopping = threading.Event()
         self._workers: set[threading.Thread] = set()
+        self._scheduler = BoundedScheduler(self.runtime_dir)
+        if recover:
+            self._recover()
+
+    def _start_batch(self, batch_id: str) -> None:
+        batch = BatchStore(self.runtime_dir, create=False).load(batch_id)
+        options = dict(batch.execution_options or {})
+        worker = threading.Thread(
+            target=self._execute,
+            args=(batch_id, options),
+            name=f"batch-{batch_id}",
+            daemon=False,
+        )
+        self._workers.add(worker)
+        worker.start()
+
+    def _recover(self) -> None:
+        jobs = JobStore(self.runtime_dir, create=False)
+        batches = BatchStore(self.runtime_dir, create=False)
+        for job in jobs.list():
+            if job.run_mode == "background" and job.status == "running":
+                jobs.transition(job.id, "interrupted", error="background worker disappeared")
+        for batch in batches.list():
+            if batch.run_mode != "background":
+                continue
+            statuses = {task_id: jobs.load(task_id).status for task_id in batch.task_ids}
+            has_queued = any(status == "queued" for status in statuses.values())
+            if has_queued and batch.execution_options:
+                batches.aggregate(batch.id, statuses)
+                self._start_batch(batch.id)
+            elif not has_queued:
+                batches.aggregate(batch.id, statuses)
 
     def _execute(self, batch_id: str, request: dict[str, object]) -> None:
         try:
@@ -44,7 +78,7 @@ class BackgroundManager:
                 language=str(request.get("language", "auto")),
                 keep_normalized=bool(request.get("keep_normalized", False)),
             )
-            BoundedScheduler(self.runtime_dir).run_batch(batch_id, options)
+            self._scheduler.run_batch(batch_id, options)
         finally:
             self._workers.discard(threading.current_thread())
 
@@ -55,6 +89,10 @@ class BackgroundManager:
         if action == "stop":
             self._stopping.set()
             return {"ok": True}
+        if action in {"cancel_job", "cancel_batch"}:
+            return self._cancel(request, whole_batch=action == "cancel_batch")
+        if action in {"retry_job", "retry_batch"}:
+            return self._retry(request, whole_batch=action == "retry_batch")
         if action != "submit":
             return {"ok": False, "error": "unsupported manager action"}
         batch_id = request.get("batch_id")
@@ -68,15 +106,86 @@ class BackgroundManager:
             return {"ok": False, "error": "batch is not in background mode"}
         if batch.status != "queued":
             return {"ok": False, "error": "batch is not queued"}
-        worker = threading.Thread(
-            target=self._execute,
-            args=(batch_id, request),
-            name=f"batch-{batch_id}",
-            daemon=False,
-        )
-        self._workers.add(worker)
-        worker.start()
+        self._start_batch(batch_id)
         return {"ok": True, "batch_id": batch_id}
+
+    def _cancel(self, request: dict[str, object], *, whole_batch: bool) -> dict[str, object]:
+        jobs = JobStore(self.runtime_dir, create=False)
+        batches = BatchStore(self.runtime_dir, create=False)
+        try:
+            if whole_batch:
+                batch_id = str(request.get("batch_id", ""))
+                task_ids = batches.load(batch_id).task_ids
+            else:
+                job_id = str(request.get("job_id", ""))
+                job = jobs.load(job_id)
+                batch_id = job.batch_id
+                task_ids = (job_id,)
+            for task_id in task_ids:
+                current = jobs.load(task_id)
+                if current.status == "queued":
+                    jobs.transition(task_id, "cancelled")
+                elif current.status == "running":
+                    event = self._scheduler.cancel_event(task_id)
+                    setter = getattr(event, "set", None)
+                    if setter is not None:
+                        setter()
+            if batch_id:
+                batch = batches.load(batch_id)
+                batches.aggregate(
+                    batch_id, {item: jobs.load(item).status for item in batch.task_ids}
+                )
+        except ValueError:
+            return {"ok": False, "error": "unknown persisted item"}
+        return {"ok": True, "status": "cancellation_requested"}
+
+    def _retry(self, request: dict[str, object], *, whole_batch: bool) -> dict[str, object]:
+        batches = BatchStore(self.runtime_dir, create=False)
+        jobs = JobStore(self.runtime_dir, create=False)
+        try:
+            if whole_batch:
+                original = batches.load(str(request.get("batch_id", "")))
+                candidates = [jobs.load(item) for item in original.task_ids]
+            else:
+                source = jobs.load(str(request.get("job_id", "")))
+                if not source.batch_id:
+                    return {"ok": False, "error": "job has no batch"}
+                original = batches.load(source.batch_id)
+                candidates = [source]
+        except ValueError:
+            return {"ok": False, "error": "unknown persisted item"}
+        retryable = [
+            item for item in candidates if item.status in {"failed", "interrupted", "cancelled"}
+        ]
+        if not retryable:
+            return {"ok": False, "error": "batch has no retryable tasks"}
+        batch_id = f"batch-retry-{uuid.uuid4().hex[:12]}"
+        task_ids: list[str] = []
+        for source in retryable:
+            task_id = f"job-retry-{uuid.uuid4().hex[:12]}"
+            task_ids.append(task_id)
+            jobs.create(
+                task_id,
+                source.input_path,
+                Path(source.output_dir).parent / task_id,
+                batch_id=batch_id,
+                run_mode="background",
+                input_order=source.input_order,
+                effective_budget=original.effective_budget,
+                attempt=source.attempt + 1,
+                retry_of=source.id,
+            )
+        batches.create(
+            batch_id,
+            task_ids=tuple(task_ids),
+            run_mode="background",
+            effective_budget=original.effective_budget,
+            output_dir=Path(original.output_dir),
+            execution_options=original.execution_options,
+            retry_of=original.id,
+        )
+        self._start_batch(batch_id)
+        return {"ok": True, "batch_id": batch_id, "task_ids": task_ids}
 
     def run(self) -> None:
         while not self._stopping.is_set():
@@ -85,6 +194,8 @@ class BackgroundManager:
             worker.join()
 
     def close(self) -> None:
+        for worker in tuple(self._workers):
+            worker.join(timeout=2)
         self._server.close()
         socket_path(self.runtime_dir).unlink(missing_ok=True)
         try:

@@ -754,7 +754,7 @@ uv run pytest tests/test_daemon.py tests/test_ipc.py tests/test_cli.py -v
 
 #### F7. 增加状态、取消、重试和重启恢复
 
-**状态：** `待开始`
+**状态：** `已完成（2026-08-01）`
 
 **目标：** 前后台任务均可查询；后台管理器崩溃或重启后不丢失任务，也不把中断任务误报成功。
 

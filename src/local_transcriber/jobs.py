@@ -162,6 +162,11 @@ class JobStore:
         except FileNotFoundError as exc:
             raise ValueError(f"unknown job: {job_id}") from exc
 
+    def list(self) -> tuple[StoredJob, ...]:
+        if not self.jobs_dir.exists():
+            return ()
+        return tuple(self.load(path.stem) for path in sorted(self.jobs_dir.glob("*.json")))
+
     def update_progress(
         self,
         job_id: str,

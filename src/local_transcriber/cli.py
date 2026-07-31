@@ -84,12 +84,23 @@ def _parser() -> argparse.ArgumentParser:
     _add_transcription_options(transcribe_dir)
     transcribe_dir.add_argument("--max-workers", type=_positive, default=1)
 
-    job = subparsers.add_parser("job", help="inspect persisted transcription jobs")
+    job = subparsers.add_parser("job", help="inspect or control persisted transcription jobs")
     job_sub = job.add_subparsers(dest="job_command", required=True)
-    status = job_sub.add_parser("status", help="read one job without starting a worker")
-    status.add_argument("job_id")
-    status.add_argument("--runtime-dir", type=Path, default=Path("var/work"))
-    status.add_argument("--json", action="store_true", dest="as_json")
+    for action in ("status", "cancel", "retry"):
+        command = job_sub.add_parser(action)
+        command.add_argument("job_id")
+        command.add_argument("--runtime-dir", type=Path, default=Path("var/work"))
+        command.add_argument("--json", action="store_true", dest="as_json")
+
+    batch = subparsers.add_parser(
+        "batch", help="inspect or control persisted transcription batches"
+    )
+    batch_sub = batch.add_subparsers(dest="batch_command", required=True)
+    for action in ("status", "cancel", "retry"):
+        command = batch_sub.add_parser(action)
+        command.add_argument("batch_id")
+        command.add_argument("--runtime-dir", type=Path, default=Path("var/work"))
+        command.add_argument("--json", action="store_true", dest="as_json")
 
     worker = subparsers.add_parser("worker", help="manage the local background worker")
     worker_sub = worker.add_subparsers(dest="worker_command", required=True)
@@ -237,6 +248,13 @@ def _run_discovered(args: argparse.Namespace, result) -> int:
         run_mode=run_mode,
         effective_budget=budget.to_dict(),
         output_dir=args.output_dir,
+        execution_options={
+            "cache_dir": str(args.cache_dir),
+            "threads": budget.threads_per_worker,
+            "speakers": args.speakers,
+            "language": args.language,
+            "keep_normalized": args.keep_normalized,
+        },
     )
     if args.bg:
         request: dict[str, object] = {
@@ -390,24 +408,56 @@ def main(argv: list[str] | None = None) -> int:
                     print(item.relative_path.as_posix())
             return 0 if result.accepted else 2
         return _run_discovered(args, result)
-    if args.command == "job" and args.job_command == "status":
+    if args.command in {"job", "batch"}:
+        kind = args.command
+        action = args.job_command if kind == "job" else args.batch_command
+        item_id = args.job_id if kind == "job" else args.batch_id
+        if action != "status":
+            request = {"action": f"{action}_{kind}", f"{kind}_id": item_id}
+            try:
+                response = UnixIPCClient(args.runtime_dir).request(request)
+            except IPCError as exc:
+                print(f"background manager action failed: {exc}", file=sys.stderr)
+                return 4
+            if response.get("ok") is not True:
+                print(str(response.get("error", "manager rejected request")), file=sys.stderr)
+                return 2
+            if args.as_json:
+                print(json.dumps(response, ensure_ascii=False, indent=2))
+            else:
+                print(f"{kind} {action}: ok")
+            return 0
         try:
-            stored = JobStore(args.runtime_dir, create=False).load(args.job_id)
+            stored = (
+                JobStore(args.runtime_dir, create=False).load(item_id)
+                if kind == "job"
+                else BatchStore(args.runtime_dir, create=False).load(item_id)
+            )
         except ValueError as exc:
             print(str(exc), file=sys.stderr)
             return 2
         payload = asdict(stored)
         payload.pop("input_path", None)
         payload.pop("output_dir", None)
+        payload.pop("artifact_paths", None)
+        payload.pop("execution_options", None)
         if args.as_json:
             print(json.dumps(payload, ensure_ascii=False, indent=2))
+        elif kind == "batch":
+            completed = f"{payload['completed_count']}/{len(payload['task_ids'])}"
+            failed = payload["failed_count"] + payload["interrupted_count"]
+            print(
+                f"{payload['id']} {payload['status']} completed={completed} "
+                f"succeeded={payload['succeeded_count']} failed={failed} "
+                f"cancelled={payload['cancelled_count']}"
+            )
         else:
             eta = "calculating"
-            if stored.eta_low_seconds is not None and stored.eta_high_seconds is not None:
-                eta = f"{stored.eta_low_seconds}-{stored.eta_high_seconds}s"
+            if payload["eta_low_seconds"] is not None and payload["eta_high_seconds"] is not None:
+                eta = f"{payload['eta_low_seconds']}-{payload['eta_high_seconds']}s"
             print(
-                f"{stored.id} {stored.status} {stored.stage} "
-                f"{stored.progress_percent:.1f}% ETA {eta} (estimate)"
+                f"{payload['id']} {payload['status']} {payload['stage']} "
+                f"{payload['progress_percent']:.1f}% ETA {eta} (estimate)"
             )
         return 0
     if args.command == "export":

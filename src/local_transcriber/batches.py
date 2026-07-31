@@ -57,6 +57,8 @@ class StoredBatch:
     cancelled_count: int = 0
     interrupted_count: int = 0
     skipped_count: int = 0
+    execution_options: dict[str, Any] | None = None
+    retry_of: str | None = None
 
 
 class BatchStore:
@@ -82,6 +84,8 @@ class BatchStore:
         run_mode: str,
         effective_budget: dict[str, Any],
         output_dir: Path,
+        execution_options: dict[str, Any] | None = None,
+        retry_of: str | None = None,
     ) -> StoredBatch:
         if run_mode not in _RUN_MODES:
             raise ValueError(f"unsupported run mode: {run_mode}")
@@ -100,6 +104,8 @@ class BatchStore:
             status="queued",
             created_at=now,
             updated_at=now,
+            execution_options=dict(execution_options or {}),
+            retry_of=retry_of,
         )
         self._write(batch)
         return batch
@@ -110,7 +116,14 @@ class BatchStore:
         except FileNotFoundError as exc:
             raise ValueError(f"unknown batch: {batch_id}") from exc
         payload["task_ids"] = tuple(payload["task_ids"])
+        payload.setdefault("execution_options", {})
+        payload.setdefault("retry_of", None)
         return StoredBatch(**payload)
+
+    def list(self) -> tuple[StoredBatch, ...]:
+        if not self.batches_dir.exists():
+            return ()
+        return tuple(self.load(path.stem) for path in sorted(self.batches_dir.glob("*.json")))
 
     def aggregate(self, batch_id: str, task_statuses: dict[str, str]) -> StoredBatch:
         current = self.load(batch_id)

@@ -119,6 +119,22 @@ def test_manager_status_is_read_only_and_reports_socket_availability(tmp_path: P
     assert not missing.exists()
 
 
+def test_running_job_cancel_sets_scheduler_cooperative_event(tmp_path: Path) -> None:
+    runtime = tmp_path / "runtime"
+    _persist_background_batch(runtime, tmp_path / "out")
+    jobs = JobStore(runtime)
+    jobs.transition("job-1", "running")
+    manager = BackgroundManager(runtime, recover=False)
+    try:
+        response = manager.handle({"action": "cancel_job", "job_id": "job-1"})
+        assert response["ok"] is True
+        event = manager._scheduler.cancel_event("job-1")
+        assert event.is_set()  # type: ignore[attr-defined]
+        assert jobs.load("job-1").status == "running"
+    finally:
+        manager.close()
+
+
 def test_service_control_uses_user_systemd_not_shell_background(
     tmp_path: Path, monkeypatch
 ) -> None:
