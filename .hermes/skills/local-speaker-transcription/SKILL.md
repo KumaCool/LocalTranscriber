@@ -56,7 +56,7 @@ Do not add `--speakers N` unless the user explicitly requests a known count and 
 
 Completion criterion: input exists, contains audio, is authorized, and cached model prerequisites are present.
 
-Before launch, report the CLI's estimated completion window. Describe it as an estimate based on media duration and this host's measured runs, not a deadline.
+Before launch, report the CLI's estimated completion window. Describe it as an estimate based on media duration and this host's measured runs, not a deadline. The persisted percentage and ETA range are also an engineering estimate driven by stage events and FunASR work-unit callbacks; they are not word-accurate or guaranteed wall-clock completion times.
 
 ### 2. Start exactly one transcription
 
@@ -72,7 +72,17 @@ uv run local-transcriber transcribe /absolute/path/to/input \
   --threads 2
 ```
 
-Transcription is resource-heavy and may take minutes. Start it with the Hermes terminal tool using `background=true` and `notify_on_complete=true`. Do not launch another transcription while one is active. Do not poll in a tight loop; wait for completion notification or inspect only when the user asks for progress.
+Transcription is resource-heavy and may take minutes. Start it with the Hermes terminal tool using `background=true` and `notify_on_complete=true`. The CLI immediately writes `job started: <job-id>` to stderr. Record that ID. Do not launch another transcription while one is active.
+
+When the user asks for progress, read the persisted state without starting a worker:
+
+```bash
+uv run local-transcriber job status <job-id> \
+  --runtime-dir var/work/hermes \
+  --json
+```
+
+Report `stage`, `progress_percent`, and the ETA range as an engineering estimate. Do not poll in a tight loop. Only schedule periodic checks when the user explicitly asks for timed updates, suppress updates when the stage is unchanged and progress moved less than 5 percentage points, and always send one terminal update after validating the process exit and artifacts.
 
 Completion criterion: the process exits and its stdout identifies the generated `result.json` path.
 

@@ -6,6 +6,7 @@ import json
 import shutil
 import sys
 import uuid
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from importlib.metadata import version
 from pathlib import Path
@@ -21,6 +22,7 @@ from local_transcriber.media import (
     probe_media,
 )
 from local_transcriber.models import MODEL_SPECS, pull_models, write_model_manifest
+from local_transcriber.progress import ProgressEstimator
 from local_transcriber.schema import (
     SUPPORTED_LANGUAGES,
     CanonicalResult,
@@ -69,6 +71,13 @@ def _parser() -> argparse.ArgumentParser:
     )
     transcribe.add_argument("--keep-normalized", action="store_true")
 
+    job = subparsers.add_parser("job", help="inspect persisted transcription jobs")
+    job_sub = job.add_subparsers(dest="job_command", required=True)
+    status = job_sub.add_parser("status", help="read one job without starting a worker")
+    status.add_argument("job_id")
+    status.add_argument("--runtime-dir", type=Path, default=Path("var/work"))
+    status.add_argument("--json", action="store_true", dest="as_json")
+
     export = subparsers.add_parser("export", help="derive a format from canonical JSON")
     export.add_argument("result", type=Path)
     export.add_argument("--format", choices=("md", "txt", "srt"), required=True)
@@ -101,6 +110,7 @@ def _transcribe(args: argparse.Namespace) -> int:
     job_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:8]
     store = JobStore(args.runtime_dir)
     stored = store.create(job_id, str(args.input), args.output_dir)
+    print(f"job started: {job_id}", file=sys.stderr, flush=True)
     work_dir = args.runtime_dir / job_id
     result_dir = args.output_dir / job_id
     normalized = work_dir / "normalized.wav"
@@ -109,6 +119,7 @@ def _transcribe(args: argparse.Namespace) -> int:
             if not args.input.is_file():
                 raise MediaError(f"input media does not exist: {args.input}")
             stored = store.transition(job_id, "running")
+            store.update_progress(job_id, stage="probing", progress_percent=1)
             media = probe_media(args.input)
             low_seconds, high_seconds = estimate_transcription_seconds(media.duration_ms)
             now = datetime.now(UTC)
@@ -120,18 +131,36 @@ def _transcribe(args: argparse.Namespace) -> int:
                 file=sys.stderr,
                 flush=True,
             )
+            store.update_progress(job_id, stage="normalizing", progress_percent=3)
             normalize_audio(args.input, normalized, media.audio_stream_index)
+            store.update_progress(job_id, stage="loading", progress_percent=5)
             engine = TranscriptionEngine(
                 cache_dir=args.cache_dir,
                 threads=args.threads,
                 speakers=args.speakers,
                 language=args.language,
             )
-            raw_segments = engine.transcribe(normalized)
+            store.update_progress(job_id, stage="vad", progress_percent=10)
+            estimator = ProgressEstimator()
+
+            def persist_progress(current: float, total: float) -> None:
+                estimate = estimator.observe(current, total)
+                store.update_progress(
+                    job_id,
+                    stage="transcribing",
+                    progress_percent=estimate.progress_percent,
+                    processed_units=estimate.processed_units,
+                    total_units=estimate.total_units,
+                    eta_low_seconds=estimate.eta_low_seconds,
+                    eta_high_seconds=estimate.eta_high_seconds,
+                    eta_confidence=estimate.confidence,
+                )
+
+            raw_segments = engine.transcribe(normalized, progress_callback=persist_progress)
+            store.update_progress(job_id, stage="finalizing", progress_percent=95)
             segments = tuple(
                 item if isinstance(item, Segment) else Segment(**item) for item in raw_segments
             )
-            stored = store.transition(job_id, "succeeded")
             result = CanonicalResult(
                 schema_version=1,
                 source=SourceInfo(
@@ -147,11 +176,11 @@ def _transcribe(args: argparse.Namespace) -> int:
                 ),
                 job=JobInfo(
                     id=stored.id,
-                    status=stored.status,
+                    status="succeeded",
                     created_at=stored.created_at,
                     started_at=stored.started_at,
-                    finished_at=stored.finished_at,
-                    error=stored.error,
+                    finished_at=datetime.now(UTC).isoformat(),
+                    error=None,
                 ),
                 segments=segments,
             )
@@ -167,6 +196,22 @@ def _transcribe(args: argparse.Namespace) -> int:
             (result_dir / "media.json").write_text(
                 json.dumps(media.to_dict(), indent=2) + "\n", encoding="utf-8"
             )
+            stored = store.transition(job_id, "succeeded")
+            result = CanonicalResult(
+                schema_version=result.schema_version,
+                source=result.source,
+                engine=result.engine,
+                job=JobInfo(
+                    id=stored.id,
+                    status=stored.status,
+                    created_at=stored.created_at,
+                    started_at=stored.started_at,
+                    finished_at=stored.finished_at,
+                    error=stored.error,
+                ),
+                segments=result.segments,
+            )
+            write_result(result_path, result)
             if not args.keep_normalized:
                 shutil.rmtree(work_dir, ignore_errors=True)
             print(result_path)
@@ -205,6 +250,26 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "transcribe":
         return _transcribe(args)
+    if args.command == "job" and args.job_command == "status":
+        try:
+            stored = JobStore(args.runtime_dir, create=False).load(args.job_id)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        payload = asdict(stored)
+        payload.pop("input_path", None)
+        payload.pop("output_dir", None)
+        if args.as_json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            eta = "calculating"
+            if stored.eta_low_seconds is not None and stored.eta_high_seconds is not None:
+                eta = f"{stored.eta_low_seconds}-{stored.eta_high_seconds}s"
+            print(
+                f"{stored.id} {stored.status} {stored.stage} "
+                f"{stored.progress_percent:.1f}% ETA {eta} (estimate)"
+            )
+        return 0
     if args.command == "export":
         destination = args.output or args.result.with_suffix(f".{args.format}")
         export_result(args.result, destination, args.format)

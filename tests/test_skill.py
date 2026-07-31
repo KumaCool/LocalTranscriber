@@ -48,6 +48,10 @@ def test_local_speaker_transcription_skill_pins_verified_safe_contract() -> None
         "exit code 130",
         "single worker",
         "estimated completion",
+        "local-transcriber job status",
+        "--json",
+        "engineering estimate",
+        "Do not poll in a tight loop",
     )
     for contract in required_contracts:
         assert contract in text

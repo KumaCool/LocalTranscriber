@@ -92,6 +92,16 @@ uv run local-transcriber transcribe /path/to/input.wav \
 uv run local-transcriber export /path/to/result.json --format srt
 ```
 
+转写开始后，CLI 会立即在 stderr 输出任务 ID。可从另一个进程只读查询当前状态，不会启动第二个 worker：
+
+```bash
+uv run local-transcriber job status <job-id> \
+  --runtime-dir var/work \
+  --json
+```
+
+状态包含当前阶段、单调百分比、实际处理工作量和 ETA 范围。进度由媒体阶段事件、VAD 语音段和 ASR 实际批次驱动；ETA 是动态工程估算，不保证匀速或精确完成时刻。样本不足时 ETA 保持 `null`/`calculating`，负载波动或停滞时置信度可降为 `low`。只有成功写出全部产物后任务才到 `100%`。
+
 查看全部命令：
 
 ```bash
@@ -146,6 +156,7 @@ uv run ruff format --check .
 - [实现计划与工程记录](docs/plan/01-localtranscriber-implementation-plan.md)
 - [离线验证](docs/acceptance/offline-verification.md)
 - [质量评估矩阵](docs/acceptance/evaluation-matrix.md)
+- [真实进度与动态 ETA 验收](docs/acceptance/progress-and-eta.md)
 - [Hermes Agent 可选集成](docs/skills-and-hermes-integration.md)
 
 `docs/acceptance/` 和 `docs/plan/` 保存开发与验证证据，不代表对所有硬件、语言和音频条件作出质量保证。

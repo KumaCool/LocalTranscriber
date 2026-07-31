@@ -28,7 +28,7 @@ def test_transcribe_cli_writes_canonical_result_and_exports(tmp_path: Path, monk
             received.update(kwargs)
             self.info = kwargs
 
-        def transcribe(self, path: Path):
+        def transcribe(self, path: Path, progress_callback=None):
             assert path.name == "normalized.wav"
             return [{"start_ms": 0, "end_ms": 90, "speaker": "SPEAKER_00", "text": "你好"}]
 
@@ -84,7 +84,7 @@ def test_transcribe_cli_records_model_error(tmp_path: Path, monkeypatch, capsys)
         def __init__(self, **kwargs):
             pass
 
-        def transcribe(self, path: Path):
+        def transcribe(self, path: Path, progress_callback=None):
             raise RuntimeError("model failed")
 
     monkeypatch.setattr("local_transcriber.cli.TranscriptionEngine", BrokenEngine)
@@ -102,6 +102,43 @@ def test_transcribe_cli_records_model_error(tmp_path: Path, monkeypatch, capsys)
 
     assert code == 3
     assert "model failed" in capsys.readouterr().err
+
+
+def test_transcribe_cli_does_not_succeed_before_all_exports_are_written(
+    tmp_path: Path, monkeypatch
+) -> None:
+    source = tmp_path / "meeting.wav"
+    _fixture(source)
+
+    class FakeEngine:
+        def __init__(self, **kwargs):
+            self.info = kwargs
+
+        def transcribe(self, path: Path, progress_callback=None):
+            return [{"start_ms": 0, "end_ms": 90, "speaker": "SPEAKER_00", "text": "你好"}]
+
+    def broken_export(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("local_transcriber.cli.TranscriptionEngine", FakeEngine)
+    monkeypatch.setattr("local_transcriber.cli.export_result", broken_export)
+    runtime = tmp_path / "runtime"
+
+    code = main(
+        [
+            "transcribe",
+            str(source),
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--runtime-dir",
+            str(runtime),
+        ]
+    )
+
+    payload = json.loads(next((runtime / "jobs").glob("*.json")).read_text())
+    assert code == 3
+    assert payload["status"] == "failed"
+    assert payload["progress_percent"] < 100
 
 
 def test_transcribe_rejects_nonpositive_speakers(tmp_path: Path) -> None:
@@ -124,7 +161,7 @@ def test_transcribe_cli_reports_estimated_duration_before_engine_runs(
         def __init__(self, **kwargs):
             pass
 
-        def transcribe(self, path: Path):
+        def transcribe(self, path: Path, progress_callback=None):
             return [{"start_ms": 0, "end_ms": 90, "speaker": "SPEAKER_00", "text": "你好"}]
 
     monkeypatch.setattr("local_transcriber.cli.TranscriptionEngine", FakeEngine)
@@ -143,3 +180,76 @@ def test_transcribe_cli_reports_estimated_duration_before_engine_runs(
     )
 
     assert "estimated completion:" in capsys.readouterr().err
+
+
+def test_job_status_command_returns_machine_readable_progress(tmp_path: Path, capsys) -> None:
+    runtime = tmp_path / "runtime"
+    from local_transcriber.jobs import JobStore
+
+    store = JobStore(runtime)
+    store.create("job-1", "/private/meeting.wav", tmp_path / "out")
+    store.transition("job-1", "running")
+    store.update_progress(
+        "job-1",
+        stage="transcribing",
+        progress_percent=47,
+        processed_units=4,
+        total_units=10,
+        eta_low_seconds=20,
+        eta_high_seconds=35,
+    )
+
+    assert main(["job", "status", "job-1", "--runtime-dir", str(runtime), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["id"] == "job-1"
+    assert payload["stage"] == "transcribing"
+    assert payload["progress_percent"] == 47
+    assert payload["eta_low_seconds"] == 20
+    assert payload["eta_high_seconds"] == 35
+    assert "input_path" not in payload
+
+
+def test_job_status_unknown_runtime_is_strictly_read_only(tmp_path: Path, capsys) -> None:
+    runtime = tmp_path / "missing-runtime"
+
+    assert main(["job", "status", "missing", "--runtime-dir", str(runtime), "--json"]) == 2
+    assert "unknown job" in capsys.readouterr().err
+    assert not runtime.exists()
+
+
+def test_transcribe_cli_persists_event_driven_progress(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "meeting.wav"
+    _fixture(source)
+
+    class FakeEngine:
+        def __init__(self, **kwargs):
+            self.info = kwargs
+
+        def transcribe(self, path: Path, progress_callback=None):
+            assert progress_callback is not None
+            progress_callback(1, 4)
+            progress_callback(3, 4)
+            return [{"start_ms": 0, "end_ms": 90, "speaker": "SPEAKER_00", "text": "你好"}]
+
+    monkeypatch.setattr("local_transcriber.cli.TranscriptionEngine", FakeEngine)
+    runtime = tmp_path / "runtime"
+    assert (
+        main(
+            [
+                "transcribe",
+                str(source),
+                "--output-dir",
+                str(tmp_path / "output"),
+                "--runtime-dir",
+                str(runtime),
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(next((runtime / "jobs").glob("*.json")).read_text())
+    assert payload["status"] == "succeeded"
+    assert payload["stage"] == "finalizing"
+    assert payload["progress_percent"] == 100
+    assert payload["processed_units"] == 3
+    assert payload["total_units"] == 4
