@@ -11,6 +11,12 @@ from datetime import UTC, datetime, timedelta
 from importlib.metadata import version
 from pathlib import Path
 
+from local_transcriber.discovery import (
+    DiscoveredInput,
+    discover_directory,
+    discover_explicit,
+    output_path_for,
+)
 from local_transcriber.engine import TranscriptionEngine
 from local_transcriber.environment import write_environment_report
 from local_transcriber.exporters import export_result
@@ -41,6 +47,21 @@ def _positive(value: str) -> int:
     return parsed
 
 
+def _add_transcription_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--runtime-dir", type=Path, default=Path("var/work"))
+    parser.add_argument("--cache-dir", type=Path, default=Path("var/cache/models"))
+    parser.add_argument("--threads", type=_positive, default=2)
+    parser.add_argument("--speakers", type=_positive)
+    parser.add_argument(
+        "--language",
+        choices=tuple(sorted(SUPPORTED_LANGUAGES)),
+        default="auto",
+        help="language hint: auto, zh, en, yue, ja, ko (default: auto)",
+    )
+    parser.add_argument("--keep-normalized", action="store_true")
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="local-transcriber")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -56,20 +77,18 @@ def _parser() -> argparse.ArgumentParser:
     pull.add_argument("--cache-dir", type=Path, default=Path("var/cache/models"))
     pull.add_argument("--manifest", type=Path, default=Path("var/acceptance/models.json"))
 
-    transcribe = subparsers.add_parser("transcribe", help="transcribe one local media file")
-    transcribe.add_argument("input", type=Path)
-    transcribe.add_argument("--output-dir", type=Path, required=True)
-    transcribe.add_argument("--runtime-dir", type=Path, default=Path("var/work"))
-    transcribe.add_argument("--cache-dir", type=Path, default=Path("var/cache/models"))
-    transcribe.add_argument("--threads", type=_positive, default=2)
-    transcribe.add_argument("--speakers", type=_positive)
-    transcribe.add_argument(
-        "--language",
-        choices=tuple(sorted(SUPPORTED_LANGUAGES)),
-        default="auto",
-        help="language hint: auto, zh, en, yue, ja, ko (default: auto)",
+    transcribe = subparsers.add_parser("transcribe", help="transcribe local media files")
+    transcribe.add_argument("inputs", type=Path, nargs="+")
+    _add_transcription_options(transcribe)
+
+    transcribe_dir = subparsers.add_parser(
+        "transcribe-dir", help="discover and transcribe media in a directory"
     )
-    transcribe.add_argument("--keep-normalized", action="store_true")
+    transcribe_dir.add_argument("directory", type=Path)
+    transcribe_dir.add_argument("--recursive", action="store_true")
+    transcribe_dir.add_argument("--dry-run", action="store_true")
+    transcribe_dir.add_argument("--json", action="store_true", dest="as_json")
+    _add_transcription_options(transcribe_dir)
 
     job = subparsers.add_parser("job", help="inspect persisted transcription jobs")
     job_sub = job.add_subparsers(dest="job_command", required=True)
@@ -106,13 +125,27 @@ def _default_engine(threads: int, speakers: int | None, language: str) -> Engine
     )
 
 
-def _transcribe(args: argparse.Namespace) -> int:
+def _transcribe(
+    args: argparse.Namespace,
+    *,
+    input_order: int = 0,
+    discovered_input: DiscoveredInput | None = None,
+) -> int:
     job_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:8]
     store = JobStore(args.runtime_dir)
-    stored = store.create(job_id, str(args.input), args.output_dir)
+    result_dir = (
+        output_path_for(args.output_dir, discovered_input, job_id)
+        if discovered_input is not None
+        else args.output_dir / job_id
+    )
+    stored = store.create(
+        job_id,
+        str(args.input.resolve()),
+        result_dir,
+        input_order=input_order,
+    )
     print(f"job started: {job_id}", file=sys.stderr, flush=True)
     work_dir = args.runtime_dir / job_id
-    result_dir = args.output_dir / job_id
     normalized = work_dir / "normalized.wav"
     try:
         with store.worker(job_id):
@@ -237,6 +270,47 @@ def _transcribe(args: argparse.Namespace) -> int:
         return 3
 
 
+def _discovery_payload(result) -> dict[str, object]:
+    return {
+        "accepted": [
+            {
+                "path": str(item.path),
+                "relative_path": item.relative_path.as_posix(),
+                "input_order": item.input_order,
+                "size_bytes": item.size_bytes,
+                "sha256": item.sha256,
+                "duration_ms": item.media.duration_ms,
+            }
+            for item in result.accepted
+        ],
+        "skipped": [
+            {"path": str(item.path), "reason": item.reason, "detail": item.detail}
+            for item in result.skipped
+        ],
+    }
+
+
+def _run_discovered(args: argparse.Namespace, result) -> int:
+    if not result.accepted:
+        invalid = next((item for item in result.skipped if item.reason == "invalid_media"), None)
+        if invalid is not None:
+            args.input = invalid.path
+            return _transcribe(args)
+        print("no supported media inputs found", file=sys.stderr)
+        return 2
+    exit_code = 0
+    for item in result.accepted:
+        args.input = item.path
+        code = _transcribe(
+            args,
+            input_order=item.input_order,
+            discovered_input=item,
+        )
+        if code != 0 and exit_code == 0:
+            exit_code = code
+    return exit_code
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "environment" and args.environment_command == "probe":
@@ -249,7 +323,28 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(manifest, ensure_ascii=False, indent=2))
         return 0
     if args.command == "transcribe":
-        return _transcribe(args)
+        result = discover_explicit(args.inputs)
+        return _run_discovered(args, result)
+    if args.command == "transcribe-dir":
+        try:
+            result = discover_directory(
+                args.directory,
+                recursive=args.recursive,
+                excluded_roots=(args.runtime_dir, args.output_dir, args.cache_dir),
+            )
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        if args.dry_run:
+            payload = _discovery_payload(result)
+            if args.as_json:
+                print(json.dumps(payload, ensure_ascii=False, indent=2))
+            else:
+                print(f"accepted: {len(result.accepted)}, skipped: {len(result.skipped)}")
+                for item in result.accepted:
+                    print(item.relative_path.as_posix())
+            return 0 if result.accepted else 2
+        return _run_discovered(args, result)
     if args.command == "job" and args.job_command == "status":
         try:
             stored = JobStore(args.runtime_dir, create=False).load(args.job_id)

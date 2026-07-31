@@ -10,9 +10,18 @@ from local_transcriber.cli import main
 from local_transcriber.schema import read_result
 
 
-def _fixture(path: Path) -> None:
+def _fixture(path: Path, *, frequency: int = 440) -> None:
     subprocess.run(
-        ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=duration=0.1", str(path)],
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            f"sine=frequency={frequency}:duration=0.1",
+            str(path),
+        ],
         check=True,
     )
 
@@ -215,6 +224,91 @@ def test_job_status_unknown_runtime_is_strictly_read_only(tmp_path: Path, capsys
     assert main(["job", "status", "missing", "--runtime-dir", str(runtime), "--json"]) == 2
     assert "unknown job" in capsys.readouterr().err
     assert not runtime.exists()
+
+
+def test_transcribe_accepts_multiple_inputs_in_user_order(tmp_path: Path, monkeypatch) -> None:
+    first = tmp_path / "b.wav"
+    second = tmp_path / "a.wav"
+    _fixture(first, frequency=330)
+    _fixture(second, frequency=550)
+    received: list[Path] = []
+
+    class FakeEngine:
+        def __init__(self, **kwargs):
+            self.info = kwargs
+
+        def transcribe(self, path: Path, progress_callback=None):
+            received.append(path)
+            return [{"start_ms": 0, "end_ms": 90, "speaker": "SPEAKER_00", "text": "你好"}]
+
+    monkeypatch.setattr("local_transcriber.cli.TranscriptionEngine", FakeEngine)
+
+    code = main(
+        [
+            "transcribe",
+            str(first),
+            str(second),
+            "--output-dir",
+            str(tmp_path / "output"),
+            "--runtime-dir",
+            str(tmp_path / "runtime"),
+        ]
+    )
+
+    assert code == 0
+    records = sorted(
+        (json.loads(path.read_text()) for path in (tmp_path / "runtime" / "jobs").glob("*.json")),
+        key=lambda payload: payload["input_order"],
+    )
+    assert [Path(record["input_path"]) for record in records] == [first.resolve(), second.resolve()]
+    assert [Path(record["output_dir"]).name.rsplit("-", 2)[0] for record in records] == ["b", "a"]
+    assert len({record["output_dir"] for record in records}) == 2
+    assert len(received) == 2
+
+
+def test_transcribe_dir_dry_run_is_read_only_and_does_not_load_model(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    source = tmp_path / "input"
+    top = source / "top.wav"
+    nested = source / "nested" / "nested.wav"
+    source.mkdir()
+    _fixture(top, frequency=330)
+    nested.parent.mkdir()
+    _fixture(nested, frequency=550)
+
+    class ForbiddenEngine:
+        def __init__(self, **kwargs):
+            raise AssertionError("dry-run must not load the model")
+
+    monkeypatch.setattr("local_transcriber.cli.TranscriptionEngine", ForbiddenEngine)
+    runtime = tmp_path / "runtime"
+    output = tmp_path / "output"
+
+    assert (
+        main(
+            [
+                "transcribe-dir",
+                str(source),
+                "--recursive",
+                "--dry-run",
+                "--json",
+                "--output-dir",
+                str(output),
+                "--runtime-dir",
+                str(runtime),
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert [item["relative_path"] for item in payload["accepted"]] == [
+        "nested/nested.wav",
+        "top.wav",
+    ]
+    assert not runtime.exists()
+    assert not output.exists()
 
 
 def test_transcribe_cli_persists_event_driven_progress(tmp_path: Path, monkeypatch) -> None:
