@@ -15,7 +15,7 @@ import psutil
 
 from local_transcriber.batches import BatchStore, StoredBatch
 from local_transcriber.executor import ExecutionOutcome, ExecutorOptions, execute_job
-from local_transcriber.jobs import JobStore
+from local_transcriber.jobs import JobStore, StoredJob
 
 
 @dataclass(frozen=True)
@@ -141,7 +141,13 @@ class BoundedScheduler:
                         handle.write(json.dumps({"reason": reason}) + "\n")
             time.sleep(self.sample_interval)
 
-    def run_batch(self, batch_id: str, options: ExecutorOptions) -> SchedulerReport:
+    def run_batch(
+        self,
+        batch_id: str,
+        options: ExecutorOptions,
+        *,
+        progress_callback: Callable[[StoredBatch, tuple[StoredJob, ...]], None] | None = None,
+    ) -> SchedulerReport:
         job_store = JobStore(self.runtime_dir)
         batch_store = BatchStore(self.runtime_dir)
         batch = batch_store.load(batch_id)
@@ -153,6 +159,18 @@ class BoundedScheduler:
         reasons: list[str] = []
         peak_workers = 0
         owner_id = f"scheduler-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+
+        def report_progress() -> None:
+            if progress_callback is None:
+                return
+            current_batch = batch_store.aggregate(
+                batch_id,
+                {task_id: job_store.load(task_id).status for task_id in batch.task_ids},
+            )
+            progress_callback(
+                current_batch,
+                tuple(job_store.load(task_id) for task_id in batch.task_ids),
+            )
 
         pool_factory = (
             ThreadPoolExecutor
@@ -178,9 +196,15 @@ class BoundedScheduler:
                     )
                     active[future] = job_id
                     peak_workers = max(peak_workers, len(active))
+                    report_progress()
                 if not active:
                     continue
-                done, _ = wait(active, return_when=FIRST_COMPLETED)
+                done, _ = wait(
+                    active,
+                    timeout=self.sample_interval or 0.01,
+                    return_when=FIRST_COMPLETED,
+                )
+                report_progress()
                 for future in done:
                     job_id = active.pop(future)
                     try:
@@ -194,6 +218,8 @@ class BoundedScheduler:
                     batch_id,
                     {task_id: job_store.load(task_id).status for task_id in batch.task_ids},
                 )
+
+        report_progress()
 
         batch = batch_store.load(batch_id)
         return SchedulerReport(

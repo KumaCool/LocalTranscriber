@@ -684,7 +684,7 @@ uv run pytest tests/test_executor.py tests/test_scheduler.py tests/test_cli.py t
 
 #### F5. 落地默认前台模式
 
-**状态：** `待开始`
+**状态：** `已完成（2026-08-01）`
 
 **目标：** 不带 `--bg` 时始终前台等待，单文件、多文件和目录批次均实时显示进度并返回可用于脚本的退出码。
 

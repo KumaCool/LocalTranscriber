@@ -7,6 +7,8 @@ from pathlib import Path
 import pytest
 
 from local_transcriber.cli import main
+from local_transcriber.executor import ExecutionOutcome
+from local_transcriber.scheduler import SchedulerReport
 from local_transcriber.schema import read_result
 
 
@@ -347,3 +349,105 @@ def test_transcribe_cli_persists_event_driven_progress(tmp_path: Path, monkeypat
     assert payload["progress_percent"] == 100
     assert payload["processed_units"] == 3
     assert payload["total_units"] == 4
+
+
+def test_foreground_batch_emits_summary_and_returns_execution_failure_code(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    first = tmp_path / "first.wav"
+    second = tmp_path / "second.wav"
+    _fixture(first, frequency=330)
+    _fixture(second, frequency=550)
+
+    def run_batch(self, batch_id, options, *, progress_callback=None):
+        batch = BatchStore(self.runtime_dir).load(batch_id)
+        jobs = JobStore(self.runtime_dir)
+        outcomes = {}
+        for index, job_id in enumerate(batch.task_ids):
+            jobs.transition(job_id, "running")
+            if index == 0:
+                jobs.transition(job_id, "succeeded")
+                outcomes[job_id] = ExecutionOutcome(job_id, "succeeded", 0)
+            else:
+                jobs.transition(job_id, "failed", error="model failed")
+                outcomes[job_id] = ExecutionOutcome(job_id, "failed", 3, error="model failed")
+            if progress_callback is not None:
+                BatchStore(self.runtime_dir).aggregate(
+                    batch_id,
+                    {task_id: jobs.load(task_id).status for task_id in batch.task_ids},
+                )
+                progress_callback(
+                    BatchStore(self.runtime_dir).load(batch_id),
+                    tuple(jobs.load(task_id) for task_id in batch.task_ids),
+                )
+        return SchedulerReport(batch_id, "failed", outcomes, 1, options.threads)
+
+    from local_transcriber.batches import BatchStore
+    from local_transcriber.jobs import JobStore
+
+    monkeypatch.setattr("local_transcriber.cli.BoundedScheduler.run_batch", run_batch)
+
+    code = main(
+        [
+            "transcribe",
+            str(first),
+            str(second),
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--runtime-dir",
+            str(tmp_path / "runtime"),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 3
+    assert "summary" in captured.err
+    assert "succeeded=1" in captured.err
+    assert "failed=1" in captured.err
+    assert str(first) not in captured.err
+
+
+def test_foreground_keyboard_interrupt_cancels_all_nonterminal_tasks(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    source = tmp_path / "meeting.wav"
+    _fixture(source)
+
+    def interrupt(self, batch_id, options, *, progress_callback=None):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("local_transcriber.cli.BoundedScheduler.run_batch", interrupt)
+    runtime = tmp_path / "runtime"
+
+    assert (
+        main(
+            [
+                "transcribe",
+                str(source),
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--runtime-dir",
+                str(runtime),
+            ]
+        )
+        == 130
+    )
+    payload = json.loads(next((runtime / "jobs").glob("*.json")).read_text())
+    assert payload["status"] == "cancelled"
+    assert "cancelled" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("codes", "expected"),
+    [
+        ([0, 0], 0),
+        ([0, 2], 2),
+        ([2, 3], 3),
+        ([3, 130], 130),
+        ([4, 3], 4),
+    ],
+)
+def test_batch_exit_code_has_stable_severity(codes: list[int], expected: int) -> None:
+    from local_transcriber.cli import _batch_exit_code
+
+    assert _batch_exit_code(codes) == expected

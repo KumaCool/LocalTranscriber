@@ -168,3 +168,34 @@ def test_process_worker_applies_independent_thread_environment(tmp_path: Path) -
     )
 
     assert observed[-1] == "3"
+
+
+def test_scheduler_reports_persisted_progress_while_batch_is_running(tmp_path: Path) -> None:
+    runtime, _ = _batch(tmp_path, count=2, workers=1)
+    snapshots: list[tuple[str, float]] = []
+
+    def runner(job_id, runtime_dir, options, *, cancel_event=None):
+        store = JobStore(runtime_dir)
+        store.transition(job_id, "running")
+        store.update_progress(job_id, stage="transcribing", progress_percent=50)
+        time.sleep(0.02)
+        store.transition(job_id, "succeeded")
+        return ExecutionOutcome(job_id, "succeeded", 0)
+
+    def progress(batch, jobs):
+        running = next((job for job in jobs if job.status == "running"), None)
+        if running is not None:
+            snapshots.append((batch.status, running.progress_percent))
+
+    BoundedScheduler(
+        runtime,
+        runner=runner,
+        executor_factory=ThreadPoolExecutor,
+        sample_interval=0.001,
+    ).run_batch(
+        "batch-1",
+        ExecutorOptions(cache_dir=tmp_path / "cache"),
+        progress_callback=progress,
+    )
+
+    assert ("running", 50.0) in snapshots

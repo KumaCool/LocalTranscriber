@@ -10,6 +10,7 @@ from pathlib import Path
 
 from local_transcriber.batches import BatchStore
 from local_transcriber.config import ResourceConfig
+from local_transcriber.console import ForegroundConsole
 from local_transcriber.discovery import (
     DiscoveredInput,
     discover_directory,
@@ -95,6 +96,13 @@ def _parser() -> argparse.ArgumentParser:
 def _new_id(prefix: str) -> str:
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
     return f"{prefix}-{stamp}-{uuid.uuid4().hex[:8]}"
+
+
+def _batch_exit_code(codes: list[int]) -> int:
+    for code in (4, 130, 3, 2):
+        if code in codes:
+            return code
+    return 0
 
 
 def _transcribe(
@@ -216,6 +224,7 @@ def _run_discovered(args: argparse.Namespace, result) -> int:
         effective_budget=budget.to_dict(),
         output_dir=args.output_dir,
     )
+    console = ForegroundConsole(args.runtime_dir, batch_id)
     try:
         report = BoundedScheduler(args.runtime_dir).run_batch(
             batch_id,
@@ -226,20 +235,42 @@ def _run_discovered(args: argparse.Namespace, result) -> int:
                 language=args.language,
                 keep_normalized=args.keep_normalized,
             ),
+            progress_callback=lambda _batch, _jobs: console.refresh(),
         )
+    except KeyboardInterrupt:
+        job_store = JobStore(args.runtime_dir)
+        for task_id in task_ids:
+            current = job_store.load(task_id)
+            if current.status in {"queued", "running"}:
+                job_store.transition(task_id, "cancelled")
+        BatchStore(args.runtime_dir).aggregate(
+            batch_id,
+            {task_id: job_store.load(task_id).status for task_id in task_ids},
+        )
+        console.finish()
+        print(f"batch {batch_id} cancelled", file=sys.stderr)
+        return 130
     except Exception as exc:
+        console.finish()
         print(str(exc), file=sys.stderr)
         return 4
-    exit_code = 0
+    console.finish()
+    exit_codes: list[int] = []
     for task_id in task_ids:
         outcome = report.outcomes[task_id]
         if outcome.result_path is not None:
             print(outcome.result_path)
         if outcome.error:
             print(outcome.error, file=sys.stderr)
-        if outcome.exit_code != 0 and exit_code == 0:
-            exit_code = outcome.exit_code
-    return exit_code
+        exit_codes.append(outcome.exit_code)
+    final = BatchStore(args.runtime_dir).load(batch_id)
+    print(
+        f"summary batch={batch_id} status={final.status} total={len(task_ids)} "
+        f"succeeded={final.succeeded_count} failed={final.failed_count + final.interrupted_count} "
+        f"cancelled={final.cancelled_count} skipped={final.skipped_count}",
+        file=sys.stderr,
+    )
+    return _batch_exit_code(exit_codes)
 
 
 def main(argv: list[str] | None = None) -> int:
