@@ -6,8 +6,10 @@ from pathlib import Path
 
 import pytest
 
+from local_transcriber.batches import BatchStore
 from local_transcriber.cli import main
 from local_transcriber.executor import ExecutionOutcome
+from local_transcriber.jobs import JobStore
 from local_transcriber.scheduler import SchedulerReport
 from local_transcriber.schema import read_result
 
@@ -233,17 +235,21 @@ def test_transcribe_accepts_multiple_inputs_in_user_order(tmp_path: Path, monkey
     second = tmp_path / "a.wav"
     _fixture(first, frequency=330)
     _fixture(second, frequency=550)
-    received: list[Path] = []
 
-    class FakeEngine:
-        def __init__(self, **kwargs):
-            self.info = kwargs
+    def run_batch(self, batch_id, options, *, progress_callback=None):
+        batch = BatchStore(self.runtime_dir).load(batch_id)
+        jobs = JobStore(self.runtime_dir)
+        outcomes = {}
+        for job_id in batch.task_ids:
+            jobs.transition(job_id, "running")
+            jobs.transition(job_id, "succeeded")
+            outcomes[job_id] = ExecutionOutcome(job_id, "succeeded", 0)
+        BatchStore(self.runtime_dir).aggregate(
+            batch_id, {job_id: "succeeded" for job_id in batch.task_ids}
+        )
+        return SchedulerReport(batch_id, "succeeded", outcomes, 1, options.threads)
 
-        def transcribe(self, path: Path, progress_callback=None):
-            received.append(path)
-            return [{"start_ms": 0, "end_ms": 90, "speaker": "SPEAKER_00", "text": "你好"}]
-
-    monkeypatch.setattr("local_transcriber.executor.TranscriptionEngine", FakeEngine)
+    monkeypatch.setattr("local_transcriber.cli.BoundedScheduler.run_batch", run_batch)
 
     code = main(
         [
@@ -265,7 +271,6 @@ def test_transcribe_accepts_multiple_inputs_in_user_order(tmp_path: Path, monkey
     assert [Path(record["input_path"]) for record in records] == [first.resolve(), second.resolve()]
     assert [Path(record["output_dir"]).name.rsplit("-", 2)[0] for record in records] == ["b", "a"]
     assert len({record["output_dir"] for record in records}) == 2
-    assert len(received) == 2
 
 
 def test_transcribe_dir_dry_run_is_read_only_and_does_not_load_model(

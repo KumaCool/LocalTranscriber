@@ -42,6 +42,21 @@ def test_budget_rejects_when_memory_cannot_fit_one_worker() -> None:
     assert budget.rejection_reason == "insufficient memory for one worker"
 
 
+def test_budget_separates_process_limit_from_current_available_memory() -> None:
+    config = ResourceConfig(memory_limit_percent=70, max_workers=1, threads_per_worker=1)
+    snapshot = ResourceSnapshot(
+        logical_cpu=4,
+        available_memory_bytes=2_000,
+        total_memory_bytes=10_000,
+    )
+
+    budget = calculate_budget(config, snapshot, worker_peak_rss_bytes=2_000)
+
+    assert budget.memory_budget_bytes == 7_000
+    assert budget.memory_worker_limit == 1
+    assert budget.effective_workers == 1
+
+
 def test_budget_serializes_effective_policy_to_json_dictionary() -> None:
     config = ResourceConfig(max_workers=2, threads_per_worker=1)
     snapshot = ResourceSnapshot(
@@ -56,3 +71,4 @@ def test_budget_serializes_effective_policy_to_json_dictionary() -> None:
     assert payload["memory_limit_percent"] == 70
     assert payload["effective_workers"] == 2
     assert payload["threads_per_worker"] == 1
+    assert payload["worker_peak_rss_bytes"] == 2_000

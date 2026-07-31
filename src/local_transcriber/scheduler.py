@@ -101,44 +101,66 @@ class BoundedScheduler:
         return event
 
     @staticmethod
-    def _budget(batch: StoredBatch) -> tuple[int, int, int, int]:
+    def _budget(batch: StoredBatch) -> tuple[int, int, int, int, int]:
         values = batch.effective_budget
         workers = int(values.get("effective_workers", 0))
         threads = int(values.get("threads_per_worker", 0))
         cpu_threads = int(values.get("cpu_thread_limit", workers * threads))
         memory_budget = int(values.get("memory_budget_bytes", 0))
+        worker_reserve = int(values.get("worker_peak_rss_bytes", 0))
         if workers < 1 or threads < 1 or workers * threads > cpu_threads:
             raise ValueError("batch effective budget cannot safely start a worker")
-        return workers, threads, int(values.get("cpu_limit_percent", 50)), memory_budget
+        return (
+            workers,
+            threads,
+            int(values.get("cpu_limit_percent", 50)),
+            memory_budget,
+            worker_reserve,
+        )
 
     def _wait_until_safe(
         self,
         *,
         cpu_limit_percent: int,
         memory_budget_bytes: int,
+        worker_reserve_bytes: int,
+        active_reserve_bytes: int,
+        has_active_workers: bool,
         reasons: list[str],
-    ) -> None:
+    ) -> bool:
         consecutive = 0
         while True:
             usage = self.resource_sampler()
             cpu_blocked = usage.cpu_percent > cpu_limit_percent
-            memory_blocked = (
-                memory_budget_bytes > 0 and usage.available_memory_bytes < memory_budget_bytes
+            budget_blocked = (
+                memory_budget_bytes > 0
+                and usage.rss_bytes + active_reserve_bytes + worker_reserve_bytes
+                > memory_budget_bytes
             )
+            available_blocked = (
+                worker_reserve_bytes > 0 and usage.available_memory_bytes < worker_reserve_bytes
+            )
+            memory_blocked = budget_blocked or available_blocked
             if not cpu_blocked and not memory_blocked:
-                return
+                return True
             consecutive += 1
             if consecutive >= self.overload_samples:
-                reason = (
-                    "available memory fell below scheduling safety line"
-                    if memory_blocked
-                    else "CPU usage exceeded scheduling budget"
-                )
-                if reason not in reasons:
+                current_reasons = []
+                if budget_blocked:
+                    current_reasons.append("worker memory reserve exceeded scheduling budget")
+                if available_blocked:
+                    current_reasons.append("available memory cannot fit next worker")
+                if cpu_blocked:
+                    current_reasons.append("CPU usage exceeded scheduling budget")
+                for reason in current_reasons:
+                    if reason in reasons:
+                        continue
                     reasons.append(reason)
                     self._degradation_log.parent.mkdir(parents=True, exist_ok=True)
                     with self._degradation_log.open("a", encoding="utf-8") as handle:
                         handle.write(json.dumps({"reason": reason}) + "\n")
+            if has_active_workers:
+                return False
             time.sleep(self.sample_interval)
 
     def run_batch(
@@ -151,7 +173,7 @@ class BoundedScheduler:
         job_store = JobStore(self.runtime_dir)
         batch_store = BatchStore(self.runtime_dir)
         batch = batch_store.load(batch_id)
-        workers, threads, cpu_limit, memory_budget = self._budget(batch)
+        workers, threads, cpu_limit, memory_budget, worker_reserve = self._budget(batch)
         options = replace(options, threads=threads)
         pending = list(batch.task_ids)
         outcomes: dict[str, ExecutionOutcome] = {}
@@ -174,17 +196,26 @@ class BoundedScheduler:
 
         pool_factory = (
             ThreadPoolExecutor
-            if workers == 1 and self.executor_factory is ProcessPoolExecutor
+            if len(pending) == 1 and self.executor_factory is ProcessPoolExecutor
             else self.executor_factory
         )
-        with job_store.scheduler(owner_id), pool_factory(max_workers=workers) as pool:
+        if pool_factory is ProcessPoolExecutor:
+            pool = pool_factory(max_workers=workers, max_tasks_per_child=1)
+        else:
+            pool = pool_factory(max_workers=workers)
+        with job_store.scheduler(owner_id), pool:
             while pending or active:
                 while pending and len(active) < workers:
-                    self._wait_until_safe(
+                    safe_to_submit = self._wait_until_safe(
                         cpu_limit_percent=cpu_limit,
                         memory_budget_bytes=memory_budget,
+                        worker_reserve_bytes=worker_reserve,
+                        active_reserve_bytes=len(active) * worker_reserve,
+                        has_active_workers=bool(active),
                         reasons=reasons,
                     )
+                    if not safe_to_submit:
+                        break
                     job_id = pending.pop(0)
                     future = pool.submit(
                         _run_worker,

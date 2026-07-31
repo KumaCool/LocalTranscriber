@@ -70,6 +70,29 @@ uv run local-transcriber transcribe /path/to/input.wav \
   --output-dir var/output
 ```
 
+不带 `--bg` 时始终前台等待。多文件和目录使用同一持久化调度器，worker/线程数会同时受 CPU、内存和用户上限约束；默认 CPU 预算不超过逻辑 CPU 的 50%。
+
+```bash
+uv run local-transcriber transcribe /path/a.wav /path/b.mp3 \
+  --output-dir var/output
+
+uv run local-transcriber transcribe-dir /path/to/media-dir \
+  --output-dir var/output
+```
+
+只有明确需要跨会话或终端断开后继续运行时才传 `--bg`。后台管理器使用本地 Unix IPC，不监听 HTTP/TCP；提交成功会返回 batch/task ID：
+
+```bash
+uv run local-transcriber transcribe-dir /path/to/media-dir \
+  --output-dir var/output --runtime-dir var/work --bg --json
+
+uv run local-transcriber batch status <batch-id> --runtime-dir var/work --json
+uv run local-transcriber batch cancel <batch-id> --runtime-dir var/work --json
+uv run local-transcriber batch retry <batch-id> --runtime-dir var/work --json
+```
+
+有用户级 systemd 时可用 `worker start/status/stop/restart`；无 systemd 环境应以受跟踪的 `worker run` 前台进程运行管理器，不要使用裸 `&` 或 `nohup`。
+
 指定中文：
 
 ```bash
@@ -157,6 +180,7 @@ uv run ruff format --check .
 - [离线验证](docs/acceptance/offline-verification.md)
 - [质量评估矩阵](docs/acceptance/evaluation-matrix.md)
 - [真实进度与动态 ETA 验收](docs/acceptance/progress-and-eta.md)
+- [批量、后台恢复与资源验收](docs/acceptance/batch-background-resources.md)
 - [Hermes Agent 可选集成](docs/skills-and-hermes-integration.md)
 
 `docs/acceptance/` 和 `docs/plan/` 保存开发与验证证据，不代表对所有硬件、语言和音频条件作出质量保证。

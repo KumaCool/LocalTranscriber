@@ -6,6 +6,7 @@ import subprocess
 import sys
 import threading
 import uuid
+from collections import deque
 from pathlib import Path
 from typing import TextIO
 
@@ -34,6 +35,10 @@ class BackgroundManager:
         self._server = UnixIPCServer(runtime_dir, self.handle)
         self._stopping = threading.Event()
         self._workers: set[threading.Thread] = set()
+        self._queue: deque[tuple[str, dict[str, object]]] = deque()
+        self._queue_lock = threading.Lock()
+        self._active = False
+        self._current_batch_id: str | None = None
         self._scheduler = BoundedScheduler(self.runtime_dir)
         if recover:
             self._recover()
@@ -41,14 +46,43 @@ class BackgroundManager:
     def _start_batch(self, batch_id: str) -> None:
         batch = BatchStore(self.runtime_dir, create=False).load(batch_id)
         options = dict(batch.execution_options or {})
+        with self._queue_lock:
+            if self._current_batch_id == batch_id or any(
+                item[0] == batch_id for item in self._queue
+            ):
+                return
+            self._queue.append((batch_id, options))
+            if self._active:
+                return
+            self._active = True
         worker = threading.Thread(
-            target=self._execute,
-            args=(batch_id, options),
-            name=f"batch-{batch_id}",
+            target=self._drain_queue,
+            name="background-batch-queue",
             daemon=False,
         )
         self._workers.add(worker)
         worker.start()
+
+    def _drain_queue(self) -> None:
+        try:
+            while True:
+                with self._queue_lock:
+                    if not self._queue:
+                        self._active = False
+                        self._current_batch_id = None
+                        return
+                    batch_id, options = self._queue.popleft()
+                    self._current_batch_id = batch_id
+                try:
+                    self._execute(batch_id, options)
+                except Exception:
+                    continue
+                finally:
+                    with self._queue_lock:
+                        if self._current_batch_id == batch_id:
+                            self._current_batch_id = None
+        finally:
+            self._workers.discard(threading.current_thread())
 
     def _recover(self) -> None:
         jobs = JobStore(self.runtime_dir, create=False)
@@ -68,19 +102,16 @@ class BackgroundManager:
                 batches.aggregate(batch.id, statuses)
 
     def _execute(self, batch_id: str, request: dict[str, object]) -> None:
-        try:
-            options = ExecutorOptions(
-                cache_dir=Path(str(request.get("cache_dir", "var/cache/models"))),
-                threads=int(request.get("threads", 1)),
-                speakers=(
-                    int(str(request["speakers"])) if request.get("speakers") is not None else None
-                ),
-                language=str(request.get("language", "auto")),
-                keep_normalized=bool(request.get("keep_normalized", False)),
-            )
-            self._scheduler.run_batch(batch_id, options)
-        finally:
-            self._workers.discard(threading.current_thread())
+        options = ExecutorOptions(
+            cache_dir=Path(str(request.get("cache_dir", "var/cache/models"))),
+            threads=int(str(request.get("threads", 1))),
+            speakers=(
+                int(str(request["speakers"])) if request.get("speakers") is not None else None
+            ),
+            language=str(request.get("language", "auto")),
+            keep_normalized=bool(request.get("keep_normalized", False)),
+        )
+        self._scheduler.run_batch(batch_id, options)
 
     def handle(self, request: dict[str, object]) -> dict[str, object]:
         action = request.get("action")

@@ -50,7 +50,7 @@
 | C 真实样本评估与离线验收 | `已完成` | 阶段 B 完成 | [评估矩阵](../acceptance/evaluation-matrix.md)及[断网验收](../acceptance/offline-verification.md)：六类样本已运行，限制已记录，缓存模型断网运行成功 |
 | D Hermes 调用集成 | `已完成` | 阶段 C 完成 | [阶段 D 验收记录](../acceptance/hermes-integration.md)：Hermes 后台调用、产物验证和 Telegram 回传通过；无需插件/MCP |
 | E 真实转写进度与动态 ETA | `已完成` | 阶段 D 完成 | [阶段 E 验收记录](../acceptance/progress-and-eta.md)：实际工作量进度、动态 ETA、脱敏状态查询、Hermes 按需报告及三次长音频校准通过 |
-| F 前后台双模式、批量队列与资源控制 | `待开始` | 阶段 E 完成 | 待完成默认前台、显式 `--bg`、恢复、批量、并发及资源预算验收 |
+| F 前后台双模式、批量队列与资源控制 | `已完成` | 阶段 E 完成 | [阶段 F 验收记录](../acceptance/batch-background-resources.md)：默认前台、显式 `--bg`、批量、恢复、离线及资源自动降级均通过真实验收 |
 | G 版本化发布与更新日志 | `待开始` | 阶段 F 完成 | 待完成版本一致性、CHANGELOG、构建安装、tag、Release 及远端核验 |
 
 ---
@@ -791,7 +791,7 @@ uv run pytest tests/test_recovery.py tests/test_jobs.py tests/test_batches.py te
 
 #### F8. 更新 Hermes 流程并完成真实批量资源验收
 
-**状态：** `待开始`
+**状态：** `已完成（2026-08-01）`
 
 **目标：** 证明默认前台和显式后台均真实可用，目录/多文件并发不越过预算，并让 Hermes 按用户意图选择模式。
 
@@ -824,6 +824,8 @@ git diff --check
 ```
 
 **完成条件：** 默认前台、显式 `--bg`、多文件、目录、部分失败、恢复、离线及资源预算都有真实证据；所有产物读回通过。
+
+**完成证据：** [阶段 F/F8 批量、后台恢复与资源验收](../acceptance/batch-background-resources.md)。当前主机在默认 50% CPU 与内存安全预算下如实降级为 1 worker；真实验收还修复了调度内存安全线比较及多任务模型进程回收问题。
 
 **提交：** `docs: record batch and background acceptance`
 

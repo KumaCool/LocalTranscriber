@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import threading
 import time
@@ -22,7 +23,8 @@ def _batch(tmp_path: Path, count: int = 3, *, workers: int = 2, threads: int = 2
         "threads_per_worker": threads,
         "cpu_thread_limit": workers * threads,
         "cpu_limit_percent": 50,
-        "memory_budget_bytes": 10_000,
+        "memory_budget_bytes": 10_000_000_000,
+        "worker_peak_rss_bytes": 1_000,
     }
     for index, task_id in enumerate(task_ids):
         job_store.create(
@@ -41,6 +43,29 @@ def _batch(tmp_path: Path, count: int = 3, *, workers: int = 2, threads: int = 2
         output_dir=tmp_path / "out",
     )
     return runtime, task_ids
+
+
+def _process_runner(job_id, runtime_dir, options, *, cancel_event=None):
+    store = JobStore(runtime_dir)
+    store.transition(job_id, "running")
+    store.transition(job_id, "succeeded")
+    return ExecutionOutcome(job_id, "succeeded", 0, error=str(os.getpid()))
+
+
+def test_default_single_worker_recycles_process_between_model_jobs(
+    tmp_path: Path,
+) -> None:
+    runtime, _ = _batch(tmp_path, count=2, workers=1)
+
+    report = BoundedScheduler(
+        runtime,
+        runner=_process_runner,
+        resource_sampler=lambda: ResourceUsage(10, 100, 11_000),
+    ).run_batch("batch-1", ExecutorOptions(cache_dir=tmp_path / "cache"))
+
+    worker_pids = {outcome.error for outcome in report.outcomes.values()}
+    assert report.status == "succeeded"
+    assert len(worker_pids) == 2
 
 
 def test_scheduler_never_exceeds_worker_or_total_thread_budget(tmp_path: Path) -> None:
@@ -98,6 +123,119 @@ def test_scheduler_isolates_failure_and_aggregates_batch_terminal_state(tmp_path
     batch = BatchStore(runtime).load("batch-1")
     assert batch.status == "failed"
     assert batch.completed_count == len(task_ids)
+
+
+def test_scheduler_does_not_compare_live_available_memory_to_startup_budget(
+    tmp_path: Path,
+) -> None:
+    runtime, _ = _batch(tmp_path, count=1, workers=1)
+    started: list[str] = []
+
+    def runner(job_id, runtime_dir, options, *, cancel_event=None):
+        started.append(job_id)
+        store = JobStore(runtime_dir)
+        store.transition(job_id, "running")
+        store.transition(job_id, "succeeded")
+        return ExecutionOutcome(job_id, "succeeded", 0)
+
+    report = BoundedScheduler(
+        runtime,
+        runner=runner,
+        executor_factory=ThreadPoolExecutor,
+        resource_sampler=lambda: ResourceUsage(
+            cpu_percent=10,
+            rss_bytes=100,
+            available_memory_bytes=9_000,
+        ),
+        overload_samples=1,
+        sample_interval=0,
+    ).run_batch("batch-1", ExecutorOptions(cache_dir=tmp_path / "cache"))
+
+    assert started == ["job-0"]
+    assert report.status == "succeeded"
+
+
+def test_scheduler_reserves_next_worker_peak_against_rss_and_available_memory(
+    tmp_path: Path,
+) -> None:
+    runtime, _ = _batch(tmp_path, count=1, workers=1)
+    samples = iter(
+        [
+            ResourceUsage(10, 9_999_999_500, 2_000),
+            ResourceUsage(10, 100, 500),
+            ResourceUsage(10, 100, 2_000),
+        ]
+    )
+    started: list[str] = []
+
+    def runner(job_id, runtime_dir, options, *, cancel_event=None):
+        started.append(job_id)
+        store = JobStore(runtime_dir)
+        store.transition(job_id, "running")
+        store.transition(job_id, "succeeded")
+        return ExecutionOutcome(job_id, "succeeded", 0)
+
+    report = BoundedScheduler(
+        runtime,
+        runner=runner,
+        executor_factory=ThreadPoolExecutor,
+        resource_sampler=lambda: next(samples, ResourceUsage(10, 100, 2_000)),
+        overload_samples=1,
+        sample_interval=0,
+    ).run_batch("batch-1", ExecutorOptions(cache_dir=tmp_path / "cache"))
+
+    assert started == ["job-0"]
+    assert report.status == "succeeded"
+    assert "worker memory reserve exceeded scheduling budget" in report.degradation_reasons
+    assert "available memory cannot fit next worker" in report.degradation_reasons
+
+
+def test_scheduler_accumulates_unrealized_reserve_for_active_workers(tmp_path: Path) -> None:
+    runtime, _ = _batch(tmp_path, count=2, workers=2)
+    batch_path = runtime / "batches" / "batch-1.json"
+    payload = json.loads(batch_path.read_text())
+    payload["effective_budget"]["memory_budget_bytes"] = 1_500
+    payload["effective_budget"]["worker_peak_rss_bytes"] = 1_000
+    batch_path.write_text(json.dumps(payload))
+    release = threading.Event()
+    started: list[str] = []
+    samples = iter(
+        [
+            ResourceUsage(10, 100, 3_000),
+            ResourceUsage(10, 100, 3_000),
+            ResourceUsage(10, 100, 3_000),
+            ResourceUsage(10, 100, 3_000),
+            ResourceUsage(10, 100, 3_000),
+            ResourceUsage(10, 100, 3_000),
+        ]
+    )
+
+    def runner(job_id, runtime_dir, options, *, cancel_event=None):
+        started.append(job_id)
+        store = JobStore(runtime_dir)
+        store.transition(job_id, "running")
+        if job_id == "job-0":
+            release.wait(timeout=0.2)
+        store.transition(job_id, "succeeded")
+        return ExecutionOutcome(job_id, "succeeded", 0)
+
+    def sampler():
+        usage = next(samples, ResourceUsage(10, 100, 3_000))
+        if started == ["job-0"]:
+            release.set()
+        return usage
+
+    report = BoundedScheduler(
+        runtime,
+        runner=runner,
+        executor_factory=ThreadPoolExecutor,
+        resource_sampler=sampler,
+        overload_samples=1,
+        sample_interval=0.001,
+    ).run_batch("batch-1", ExecutorOptions(cache_dir=tmp_path / "cache"))
+
+    assert report.status == "succeeded"
+    assert "worker memory reserve exceeded scheduling budget" in report.degradation_reasons
 
 
 def test_scheduler_pauses_new_work_while_resource_guard_is_blocked(tmp_path: Path) -> None:

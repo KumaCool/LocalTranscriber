@@ -33,6 +33,7 @@ class EffectiveBudget:
     cpu_thread_limit: int
     cpu_worker_limit: int
     memory_budget_bytes: int
+    worker_peak_rss_bytes: int
     memory_worker_limit: int
     effective_workers: int
     nice: int
@@ -60,8 +61,11 @@ def calculate_budget(
     configured_memory_limit = math.floor(
         snapshot.total_memory_bytes * config.memory_limit_percent / 100
     )
-    memory_budget_bytes = min(snapshot.available_memory_bytes, configured_memory_limit)
-    memory_worker_limit = memory_budget_bytes // worker_peak_rss_bytes
+    memory_budget_bytes = configured_memory_limit
+    memory_worker_limit = min(
+        memory_budget_bytes // worker_peak_rss_bytes,
+        snapshot.available_memory_bytes // worker_peak_rss_bytes,
+    )
     effective_workers = min(
         config.max_workers,
         cpu_worker_limit,
@@ -81,6 +85,7 @@ def calculate_budget(
         cpu_thread_limit=cpu_thread_limit,
         cpu_worker_limit=cpu_worker_limit,
         memory_budget_bytes=memory_budget_bytes,
+        worker_peak_rss_bytes=worker_peak_rss_bytes,
         memory_worker_limit=memory_worker_limit,
         effective_workers=effective_workers,
         nice=config.nice,
