@@ -545,7 +545,7 @@ F1 配置与资源预算
 
 **状态：** `待开始`
 
-**目标：** 建立可测试的资源预算计算，默认 CPU 上限为整机逻辑 CPU 容量的 50%，用户只能在普通配置中调低，并发取用户、CPU 和内存安全上限的最小值。
+**目标：** 建立可测试的资源预算计算，CPU/内存默认分别为 50%/70%，用户可以调低、调高或完全关闭对应预算；启用时并发取用户、CPU 和内存安全上限的最小值。
 
 **预计文件：**
 
@@ -557,7 +557,7 @@ F1 配置与资源预算
 
 **实施步骤：**
 
-1. 先写失败测试，覆盖 `cpu_limit_percent=50`、合法范围 `10–50`、越界拒绝、CLI/项目配置/默认值优先级；
+1. 先写失败测试，覆盖默认 `50/70`、合法范围 `0–100`、`0` 关闭预算、越界拒绝、CLI/项目配置/默认值优先级；
 2. 实现不可变配置对象，至少包含 `cpu_limit_percent`、`memory_limit_percent`、`max_workers`、`threads_per_worker` 和 `nice`；
 3. 先写预算失败测试，固定逻辑 CPU、可用内存、实测单 worker 峰值 RSS，验证方案中的 `effective_workers` 公式；
 4. 实现资源快照与纯函数预算计算；所有 worker 线程总和不得超过 `floor(logical_cpu × cpu_limit_percent / 100)`；
@@ -570,7 +570,7 @@ F1 配置与资源预算
 uv run pytest tests/test_config.py tests/test_resources.py -v
 ```
 
-**完成条件：** 默认 50%、用户调低、自动降并发、内存拒绝和配置优先级均有确定性测试。
+**完成条件：** 默认预算、调低/调高/关闭、自动降并发、实际可用内存拒绝和配置优先级均有确定性测试。
 
 **提交：** `feat: add bounded transcription resource policy`
 
@@ -737,7 +737,7 @@ uv run pytest tests/test_cli.py tests/test_console.py -v
 2. 后台提交先原子保存批次，再通过仅限本机用户的 Unix domain socket/受控本地 IPC 通知管理器；不监听 TCP/HTTP；
 3. 若管理器未运行，`--bg` 在支持的安装环境中启动/请求启动用户级管理器；无法启动时返回明确错误，不能伪报已提交；
 4. 实现 `worker run/start/status/stop/restart`，同一 runtime 只允许一个管理器；
-5. `start` 不使用裸 `&`/`nohup` 产生孤儿；systemd 用户服务设置私有运行目录、重启策略、`CPUQuota=50%` 的默认保护及内存保护模板；
+5. `start` 不使用裸 `&`/`nohup` 产生孤儿；systemd 用户服务设置私有运行目录和重启策略，但不固定附加 CPU/内存 cgroup 限制，以免覆盖用户资源配置；
 6. 后台提交输出固定 JSON（可选）与人类摘要，至少含 `mode=background`、batch ID、task IDs、状态查询命令；
 7. 后台管理器日志只含任务元数据、阶段和脱敏错误，不含转写正文；
 8. 前台与后台对同一 runtime 的锁和预算必须协调，不允许合计并发越过有效预算。

@@ -131,7 +131,7 @@ class BoundedScheduler:
         consecutive = 0
         while True:
             usage = self.resource_sampler()
-            cpu_blocked = usage.cpu_percent > cpu_limit_percent
+            cpu_blocked = cpu_limit_percent > 0 and usage.cpu_percent > cpu_limit_percent
             budget_blocked = (
                 memory_budget_bytes > 0
                 and usage.rss_bytes + active_reserve_bytes + worker_reserve_bytes

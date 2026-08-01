@@ -90,7 +90,7 @@ uv run local-transcriber transcribe /path/to/input.wav \
   --output-dir var/output
 ```
 
-不带 `--bg` 时始终前台等待。多文件和目录使用同一持久化调度器，worker/线程数会同时受 CPU、内存和用户上限约束；默认 CPU 预算不超过逻辑 CPU 的 50%。
+不带 `--bg` 时始终前台等待。多文件和目录使用同一持久化调度器。CPU 和内存预算默认分别为 50% 和 70%，但用户可以调低、调高或关闭任一预算；worker/线程数服从最终策略和当前实际可用内存。
 
 ```bash
 uv run local-transcriber transcribe /path/a.wav /path/b.mp3 \

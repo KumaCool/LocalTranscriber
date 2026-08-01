@@ -125,6 +125,10 @@ Discovery skips symbolic links, duplicate paths, duplicate content, unsupported 
 | `--speakers N` | automatic | Hint for a known speaker count; it does not guarantee better clustering |
 | `--threads N` | `2` | Requested threads per worker, still constrained by the resource budget |
 | `--max-workers N` | `1` | Requested worker limit, still constrained by CPU and memory budgets |
+| `--cpu-limit-percent N` | `50` | CPU budget from `1–100`; use `0` to disable the CPU budget |
+| `--memory-limit-percent N` | `70` | Memory budget from `1–100`; use `0` to disable the percentage budget |
+| `--config PATH` | none | Load the `[resources]` table from a TOML file |
+| `--nice N` | `10` | Process niceness from `0–19` |
 | `--keep-normalized` | off | Keep the FFmpeg-normalized temporary WAV |
 | `--bg` | off | Submit to the local background manager |
 | `--json` | off | Emit machine-readable JSON for commands that support it |
@@ -144,6 +148,19 @@ uv run local-transcriber transcribe /path/to/input.wav \
   --output-dir var/output \
   --speakers 2
 ```
+
+Resource settings use this precedence: command-line options, then the TOML file, then built-in defaults. For example:
+
+```toml
+[resources]
+cpu_limit_percent = 50
+memory_limit_percent = 70
+max_workers = 1
+threads_per_worker = 2
+nice = 10
+```
+
+Pass it with `--config /path/to/local-transcriber.toml`. Set either percentage to `0` to disable that budget. A disabled memory percentage does not bypass physical availability: the scheduler still refuses to start a worker that cannot fit in currently available memory.
 
 ## 6. Foreground Progress, Status, and Cancellation
 

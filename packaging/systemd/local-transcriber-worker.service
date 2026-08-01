@@ -14,8 +14,7 @@ ProtectHome=read-only
 ReadWritePaths=%h/.local/state/local-transcriber %h/.cache/local-transcriber
 NoNewPrivileges=yes
 RestrictAddressFamilies=AF_UNIX
-CPUQuota=50%
-MemoryHigh=80%
+
 
 [Install]
 WantedBy=default.target

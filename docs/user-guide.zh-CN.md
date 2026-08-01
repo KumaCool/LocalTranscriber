@@ -125,6 +125,10 @@ uv run local-transcriber transcribe-dir /path/to/media \
 | `--speakers N` | 自动 | 提示已知说话人数；不保证聚类一定更准 |
 | `--threads N` | `2` | 请求每个 worker 使用的线程数，最终值受资源预算约束 |
 | `--max-workers N` | `1` | 请求最大 worker 数，最终值受 CPU 和内存预算约束 |
+| `--cpu-limit-percent N` | `50` | CPU 预算百分比 `1–100`；设为 `0` 关闭 CPU 预算 |
+| `--memory-limit-percent N` | `70` | 内存预算百分比 `1–100`；设为 `0` 关闭百分比预算 |
+| `--config PATH` | 无 | 从 TOML 文件读取 `[resources]` 配置 |
+| `--nice N` | `10` | 进程 nice 值，范围 `0–19` |
 | `--keep-normalized` | 关闭 | 保留 FFmpeg 标准化后的临时 WAV |
 | `--bg` | 关闭 | 提交给本地后台管理器 |
 | `--json` | 关闭 | 对支持的命令输出机器可读 JSON |
@@ -144,6 +148,19 @@ uv run local-transcriber transcribe /path/to/input.wav \
   --output-dir var/output \
   --speakers 2
 ```
+
+资源配置优先级为：命令行参数 > TOML 配置文件 > 内置默认值。例如：
+
+```toml
+[resources]
+cpu_limit_percent = 50
+memory_limit_percent = 70
+max_workers = 1
+threads_per_worker = 2
+nice = 10
+```
+
+通过 `--config /path/to/local-transcriber.toml` 使用。任一百分比设为 `0` 即关闭对应预算。关闭内存百分比预算并不绕过物理可用内存检查：当前可用内存无法容纳一个 worker 时，调度器仍会拒绝启动。
 
 ## 6. 前台进度、状态和取消
 

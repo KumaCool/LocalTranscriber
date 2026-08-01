@@ -56,14 +56,23 @@ def calculate_budget(
     if worker_peak_rss_bytes < 1:
         raise ValueError("worker_peak_rss_bytes must be positive")
 
-    cpu_thread_limit = max(1, math.floor(snapshot.logical_cpu * config.cpu_limit_percent / 100))
-    cpu_worker_limit = cpu_thread_limit // config.threads_per_worker
-    configured_memory_limit = math.floor(
-        snapshot.total_memory_bytes * config.memory_limit_percent / 100
+    cpu_thread_limit = (
+        snapshot.logical_cpu
+        if config.cpu_limit_percent == 0
+        else max(1, math.floor(snapshot.logical_cpu * config.cpu_limit_percent / 100))
     )
-    memory_budget_bytes = configured_memory_limit
+    cpu_worker_limit = cpu_thread_limit // config.threads_per_worker
+    memory_budget_bytes = (
+        0
+        if config.memory_limit_percent == 0
+        else math.floor(snapshot.total_memory_bytes * config.memory_limit_percent / 100)
+    )
     memory_worker_limit = min(
-        memory_budget_bytes // worker_peak_rss_bytes,
+        (
+            snapshot.available_memory_bytes // worker_peak_rss_bytes
+            if memory_budget_bytes == 0
+            else memory_budget_bytes // worker_peak_rss_bytes
+        ),
         snapshot.available_memory_bytes // worker_peak_rss_bytes,
     )
     effective_workers = min(

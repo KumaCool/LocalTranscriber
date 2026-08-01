@@ -267,8 +267,6 @@ def service_control(action: str, runtime_dir: Path) -> dict[str, object]:
                 f"--unit={unit}",
                 "--collect",
                 "--property=Restart=on-failure",
-                "--property=CPUQuota=50%",
-                "--property=MemoryHigh=80%",
                 "--property=UMask=0077",
                 sys.executable,
                 "-m",

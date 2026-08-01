@@ -16,10 +16,10 @@ class ResourceConfig:
     nice: int = 10
 
     def __post_init__(self) -> None:
-        if not 10 <= self.cpu_limit_percent <= 50:
-            raise ValueError("cpu_limit_percent must be between 10 and 50")
-        if not 10 <= self.memory_limit_percent <= 90:
-            raise ValueError("memory_limit_percent must be between 10 and 90")
+        if not 0 <= self.cpu_limit_percent <= 100:
+            raise ValueError("cpu_limit_percent must be between 0 and 100")
+        if not 0 <= self.memory_limit_percent <= 100:
+            raise ValueError("memory_limit_percent must be between 0 and 100")
         if self.max_workers < 1:
             raise ValueError("max_workers must be positive")
         if self.threads_per_worker < 1:

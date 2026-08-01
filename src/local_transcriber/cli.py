@@ -11,7 +11,7 @@ from pathlib import Path
 
 from local_transcriber import __version__
 from local_transcriber.batches import BatchStore
-from local_transcriber.config import ResourceConfig
+from local_transcriber.config import ResourceConfig, load_resource_config
 from local_transcriber.console import ForegroundConsole
 from local_transcriber.daemon import BackgroundManager, service_control
 from local_transcriber.discovery import (
@@ -38,11 +38,23 @@ def _positive(value: str) -> int:
     return parsed
 
 
+def _percentage(value: str) -> int:
+    parsed = int(value)
+    if not 0 <= parsed <= 100:
+        raise argparse.ArgumentTypeError("must be between 0 and 100")
+    return parsed
+
+
 def _add_transcription_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--runtime-dir", type=Path, default=Path("var/work"))
     parser.add_argument("--cache-dir", type=Path, default=Path("var/cache/models"))
-    parser.add_argument("--threads", type=_positive, default=2)
+    parser.add_argument("--config", type=Path)
+    parser.add_argument("--cpu-limit-percent", type=_percentage)
+    parser.add_argument("--memory-limit-percent", type=_percentage)
+    parser.add_argument("--threads", type=_positive)
+    parser.add_argument("--max-workers", type=_positive)
+    parser.add_argument("--nice", type=int, choices=range(0, 20))
     parser.add_argument("--speakers", type=_positive)
     parser.add_argument(
         "--language",
@@ -78,7 +90,6 @@ def _parser() -> argparse.ArgumentParser:
     transcribe = subparsers.add_parser("transcribe", help="transcribe local media files")
     transcribe.add_argument("inputs", type=Path, nargs="+")
     _add_transcription_options(transcribe)
-    transcribe.add_argument("--max-workers", type=_positive, default=1)
 
     transcribe_dir = subparsers.add_parser(
         "transcribe-dir", help="discover and transcribe media in a directory"
@@ -88,7 +99,6 @@ def _parser() -> argparse.ArgumentParser:
     transcribe_dir.add_argument("--dry-run", action="store_true")
 
     _add_transcription_options(transcribe_dir)
-    transcribe_dir.add_argument("--max-workers", type=_positive, default=1)
 
     job = subparsers.add_parser("job", help="inspect or control persisted transcription jobs")
     job_sub = job.add_subparsers(dest="job_command", required=True)
@@ -134,6 +144,19 @@ def _batch_exit_code(codes: list[int]) -> int:
     return 0
 
 
+def _resource_config(args: argparse.Namespace) -> ResourceConfig:
+    return load_resource_config(
+        args.config,
+        {
+            "cpu_limit_percent": args.cpu_limit_percent,
+            "memory_limit_percent": args.memory_limit_percent,
+            "max_workers": args.max_workers,
+            "threads_per_worker": args.threads,
+            "nice": args.nice,
+        },
+    )
+
+
 def _transcribe(
     args: argparse.Namespace,
     *,
@@ -148,7 +171,7 @@ def _transcribe(
     )
     snapshot = ResourceSnapshot.capture()
     worker_peak = min(3 * 1024**3, max(1, snapshot.available_memory_bytes))
-    config = ResourceConfig(max_workers=args.max_workers, threads_per_worker=args.threads)
+    config = _resource_config(args)
     budget = calculate_budget(config, snapshot, worker_peak_rss_bytes=worker_peak)
     if budget.rejection_reason:
         print(budget.rejection_reason, file=sys.stderr)
@@ -226,7 +249,7 @@ def _run_discovered(args: argparse.Namespace, result) -> int:
 
     snapshot = ResourceSnapshot.capture()
     worker_peak = min(3 * 1024**3, max(1, snapshot.available_memory_bytes))
-    config = ResourceConfig(max_workers=args.max_workers, threads_per_worker=args.threads)
+    config = _resource_config(args)
     budget = calculate_budget(config, snapshot, worker_peak_rss_bytes=worker_peak)
     if budget.rejection_reason:
         print(budget.rejection_reason, file=sys.stderr)

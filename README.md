@@ -92,7 +92,7 @@ uv run local-transcriber transcribe /path/to/input.wav \
   --output-dir var/output
 ```
 
-Without `--bg`, the command always waits in the foreground. Multiple files and directories use the same persistent scheduler. Worker and thread counts are constrained by CPU, memory, and user limits; the default CPU budget does not exceed 50% of logical CPUs.
+Without `--bg`, the command always waits in the foreground. Multiple files and directories use the same persistent scheduler. CPU and memory budgets default to 50% and 70%, but users may lower, raise, or disable either budget. Worker and thread counts use the resulting policy plus current available memory.
 
 ```bash
 uv run local-transcriber transcribe /path/a.wav /path/b.mp3 \

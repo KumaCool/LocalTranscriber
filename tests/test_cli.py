@@ -14,6 +14,57 @@ from local_transcriber.scheduler import SchedulerReport
 from local_transcriber.schema import read_result
 
 
+def test_transcribe_cli_loads_resource_config_and_cli_overrides_it(
+    tmp_path: Path, monkeypatch
+) -> None:
+    source = tmp_path / "meeting.wav"
+    _fixture(source)
+    config = tmp_path / "local-transcriber.toml"
+    config.write_text(
+        """[resources]
+cpu_limit_percent = 0
+memory_limit_percent = 0
+max_workers = 3
+threads_per_worker = 1
+nice = 15
+""",
+        encoding="utf-8",
+    )
+    captured = {}
+
+    class StopAfterBudget(RuntimeError):
+        pass
+
+    def capture_budget(resource_config, snapshot, *, worker_peak_rss_bytes):
+        captured["config"] = resource_config
+        raise StopAfterBudget
+
+    monkeypatch.setattr("local_transcriber.cli.calculate_budget", capture_budget)
+
+    with pytest.raises(StopAfterBudget):
+        main(
+            [
+                "transcribe",
+                str(source),
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--config",
+                str(config),
+                "--cpu-limit-percent",
+                "100",
+                "--max-workers",
+                "2",
+            ]
+        )
+
+    resource_config = captured["config"]
+    assert resource_config.cpu_limit_percent == 100
+    assert resource_config.memory_limit_percent == 0
+    assert resource_config.max_workers == 2
+    assert resource_config.threads_per_worker == 1
+    assert resource_config.nice == 15
+
+
 def _fixture(path: Path, *, frequency: int = 440) -> None:
     subprocess.run(
         [

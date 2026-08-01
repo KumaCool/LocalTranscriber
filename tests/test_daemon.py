@@ -314,6 +314,8 @@ def test_service_control_uses_user_systemd_not_shell_background(
     assert service_control("start", runtime) == {"ok": True}
     assert calls[0][0:2] == ["systemd-run", "--user"]
     assert calls[0][-3:] == ["run", "--runtime-dir", str(runtime.resolve())]
+    assert not any("CPUQuota=" in argument for argument in calls[0])
+    assert not any("MemoryHigh=" in argument for argument in calls[0])
     assert all("nohup" not in argument and argument != "&" for argument in calls[0])
 
 
