@@ -83,7 +83,7 @@ uv run local-transcriber models pull
 ```bash
 uv run local-transcriber worker stop
 git fetch --tags origin
-git checkout v0.2.1
+git checkout v0.2.2
 uv sync --locked
 uv run local-transcriber --version
 ```

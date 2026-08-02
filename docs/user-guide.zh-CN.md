@@ -361,7 +361,7 @@ uv run local-transcriber worker --help
 ```bash
 uv run local-transcriber worker stop --runtime-dir var/work
 git fetch --tags origin
-git checkout v0.2.1
+git checkout v0.2.2
 uv sync --locked
 uv run local-transcriber --version
 ```

@@ -361,7 +361,7 @@ Stop the background worker before upgrading, then check out the intended version
 ```bash
 uv run local-transcriber worker stop --runtime-dir var/work
 git fetch --tags origin
-git checkout v0.2.1
+git checkout v0.2.2
 uv sync --locked
 uv run local-transcriber --version
 ```

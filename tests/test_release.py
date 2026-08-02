@@ -25,7 +25,7 @@ def test_changelog_has_unreleased_and_descending_unique_releases() -> None:
     document = release.parse_changelog(ROOT / "CHANGELOG.md")
 
     assert document.has_unreleased
-    assert document.versions == ("0.2.1", "0.2.0", "0.1.0")
+    assert document.versions == ("0.2.2", "0.2.1", "0.2.0", "0.1.0")
     assert len(document.versions) == len(set(document.versions))
 
 
@@ -36,7 +36,7 @@ def test_release_checker_accepts_current_release_and_rejects_existing_tag(tmp_pa
         sys.executable,
         "scripts/check_release.py",
         "--release",
-        "0.2.1",
+        "0.2.2",
         "--remote",
         str(remote),
     ]
@@ -44,7 +44,7 @@ def test_release_checker_accepts_current_release_and_rejects_existing_tag(tmp_pa
     assert accepted.returncode == 0, accepted.stderr
 
     rejected = subprocess.run(
-        [*command, "--existing-tag", "v0.2.1"],
+        [*command, "--existing-tag", "v0.2.2"],
         cwd=ROOT,
         text=True,
         capture_output=True,

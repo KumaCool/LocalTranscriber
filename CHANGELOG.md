@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-08-02
+
 ### Added
 
 - 增加 Intel macOS x86_64 原生运行支持及实际 SenseVoice/VAD/CAM++ 转写验收。
@@ -62,7 +64,8 @@
 - 媒体预检、FFmpeg 标准化、持久任务状态、模型预取和离线缓存验收。
 - Hermes Agent 本地 Skill 集成与真实样本评估记录。
 
-[Unreleased]: https://github.com/KumaCool/LocalTranscriber/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/KumaCool/LocalTranscriber/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/KumaCool/LocalTranscriber/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/KumaCool/LocalTranscriber/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/KumaCool/LocalTranscriber/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/KumaCool/LocalTranscriber/releases/tag/v0.1.0

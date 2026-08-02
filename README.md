@@ -86,7 +86,7 @@ When upgrading, stop the background worker, fetch the intended version, and sync
 ```bash
 uv run local-transcriber worker stop
 git fetch --tags origin
-git checkout v0.2.1
+git checkout v0.2.2
 uv sync --locked
 uv run local-transcriber --version
 ```
