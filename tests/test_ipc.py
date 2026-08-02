@@ -49,3 +49,15 @@ def test_ipc_rejects_oversized_or_non_object_requests(tmp_path: Path) -> None:
 
     with pytest.raises(IPCError, match="not available"):
         UnixIPCClient(tmp_path / "missing").request({"action": "ping"})
+
+
+def test_socket_path_falls_back_for_long_runtime_directory(tmp_path: Path) -> None:
+    runtime = tmp_path / ("nested-" * 20)
+
+    first = socket_path(runtime)
+    second = socket_path(runtime)
+
+    assert first == second
+    assert len(os.fsencode(first)) <= 100
+    assert first.parent == Path("/tmp")
+    assert str(os.getuid()) in first.name

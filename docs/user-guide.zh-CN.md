@@ -21,11 +21,11 @@ LocalTranscriber 在本机使用 CPU 完成音视频转写，输出：
 
 ## 2. 运行要求
 
-- Linux；
+- Linux x86_64 或 Intel macOS x86_64；
 - Python 3.11；
 - [uv](https://docs.astral.sh/uv/)；
 - FFmpeg 和 ffprobe；
-- 支持 PyTorch CPU 版本的 x86_64 主机；
+- 支持 PyTorch CPU 版本的 x86_64 主机；Apple Silicon 尚未验证；
 - 足够空间存放 Python 依赖、模型缓存和转写结果。
 
 Ubuntu/Debian 安装 FFmpeg：
@@ -34,6 +34,16 @@ Ubuntu/Debian 安装 FFmpeg：
 sudo apt-get update
 sudo apt-get install -y ffmpeg
 ```
+
+macOS 可通过 Homebrew 安装：
+
+```bash
+brew install ffmpeg
+```
+
+Intel macOS 会自动选择 PyTorch/Torchaudio 2.2.2 及配套的 NumPy、Numba、llvmlite、
+Transformers 和 cryptography 版本；Linux 继续使用 PyTorch/Torchaudio 2.10.0。不要绕过锁文件
+单独升级这些包。
 
 ## 3. 安装与首次准备
 
@@ -205,7 +215,7 @@ uv run local-transcriber transcribe-dir /path/to/media \
 
 命令成功后会立即返回 batch ID 和 task ID。
 
-### 7.2 没有用户级 systemd 的环境
+### 7.2 macOS 或没有用户级 systemd 的环境
 
 在一个受终端复用器或服务管理器跟踪的终端中运行：
 

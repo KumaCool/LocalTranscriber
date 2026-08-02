@@ -26,11 +26,11 @@ Audio, model inputs, and transcription results can remain on the local machine. 
 
 ## Requirements
 
-- Linux (the primary verified platform; testing and contributions for other platforms are welcome)
+- Linux x86_64 or Intel macOS x86_64 (both verified)
 - Python 3.11
 - [uv](https://docs.astral.sh/uv/)
 - FFmpeg and ffprobe
-- An x86_64 environment supported by the PyTorch CPU build
+- An x86_64 environment supported by the PyTorch CPU build; Apple Silicon is not yet verified
 - Enough disk space for dependencies, model caches, and transcription outputs
 
 Install FFmpeg on Ubuntu/Debian:
@@ -39,6 +39,16 @@ Install FFmpeg on Ubuntu/Debian:
 sudo apt-get update
 sudo apt-get install -y ffmpeg
 ```
+
+Install FFmpeg on macOS with Homebrew:
+
+```bash
+brew install ffmpeg
+```
+
+Intel macOS uses a compatibility set whose last available x86_64 wheels include
+PyTorch/Torchaudio 2.2.2. Linux continues to use PyTorch/Torchaudio 2.10.0.
+`uv sync --locked` selects the matching versions automatically.
 
 ## Installation
 
@@ -113,7 +123,9 @@ uv run local-transcriber batch cancel <batch-id> --runtime-dir var/work --json
 uv run local-transcriber batch retry <batch-id> --runtime-dir var/work --json
 ```
 
-Where user-level systemd is available, use `worker start/status/stop/restart`. Otherwise, run a tracked `worker run` foreground process; do not use a bare `&` or `nohup`.
+On Linux with user-level systemd, use `worker start/status/stop/restart`. On macOS and other
+hosts without systemd, run a tracked `worker run` foreground process; do not use a bare `&` or
+`nohup`.
 
 Provide a Chinese language hint:
 

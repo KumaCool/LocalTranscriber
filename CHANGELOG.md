@@ -4,8 +4,17 @@
 
 ## [Unreleased]
 
+### Added
+
+- 增加 Intel macOS x86_64 原生运行支持及实际 SenseVoice/VAD/CAM++ 转写验收。
+
+### Changed
+
+- 依赖锁现在按平台选择版本：Intel macOS 使用最后仍提供 x86_64 wheel 的兼容组，Linux 保持 PyTorch/Torchaudio 2.10.0。
+
 ### Fixed
 
+- Unix IPC 现在兼容 Linux `SO_PEERCRED` 与 macOS `LOCAL_PEERCRED`，并在 macOS 路径上限内安全缩短过长的 socket 地址。
 - CPU 和内存预算现在可在 `0–100` 范围配置，`0` 表示关闭对应预算；50%/70% 仅为默认值，不再被错误实现为硬上限。
 - 转写 CLI 现在实际读取 TOML 资源配置，并允许命令行覆盖 CPU、内存、worker、线程和 nice 设置。
 - 后台 systemd 启动不再固定附加 CPU/内存 cgroup 限制，以免覆盖用户选择的资源策略。
