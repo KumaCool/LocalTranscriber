@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import socket
@@ -8,6 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 _MAX_MESSAGE_BYTES = 64 * 1024
+_MAX_PORTABLE_SOCKET_PATH_BYTES = 100
 
 
 class IPCError(RuntimeError):
@@ -15,7 +17,11 @@ class IPCError(RuntimeError):
 
 
 def socket_path(runtime_dir: Path) -> Path:
-    return runtime_dir / "worker.sock"
+    path = runtime_dir / "worker.sock"
+    if len(os.fsencode(path)) <= _MAX_PORTABLE_SOCKET_PATH_BYTES:
+        return path
+    digest = hashlib.sha256(os.fsencode(runtime_dir.resolve())).hexdigest()[:20]
+    return Path("/tmp") / f"local-transcriber-{os.getuid()}-{digest}.sock"
 
 
 class UnixIPCServer:
@@ -37,9 +43,16 @@ class UnixIPCServer:
 
     @staticmethod
     def _peer_uid(connection: socket.socket) -> int:
-        credentials = connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12)
-        _pid, uid, _gid = struct.unpack("3i", credentials)
-        return uid
+        if hasattr(socket, "SO_PEERCRED"):
+            credentials = connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12)
+            _pid, uid, _gid = struct.unpack("3i", credentials)
+            return uid
+        if hasattr(socket, "LOCAL_PEERCRED"):
+            # Darwin's xucred begins with cr_version followed by cr_uid.
+            credentials = connection.getsockopt(0, socket.LOCAL_PEERCRED, 80)
+            _version, uid = struct.unpack_from("II", credentials)
+            return uid
+        raise IPCError("peer credential checks are not supported on this platform")
 
     def serve_once(self) -> None:
         connection, _ = self._socket.accept()

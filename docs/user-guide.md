@@ -21,11 +21,11 @@ Important limitations:
 
 ## 2. Runtime Requirements
 
-- Linux
+- Linux x86_64 or Intel macOS x86_64
 - Python 3.11
 - [uv](https://docs.astral.sh/uv/)
 - FFmpeg and ffprobe
-- An x86_64 host supported by the PyTorch CPU build
+- An x86_64 host supported by the PyTorch CPU build; Apple Silicon is not yet verified
 - Enough storage for Python dependencies, model caches, and transcription outputs
 
 Install FFmpeg on Ubuntu/Debian:
@@ -34,6 +34,16 @@ Install FFmpeg on Ubuntu/Debian:
 sudo apt-get update
 sudo apt-get install -y ffmpeg
 ```
+
+Install FFmpeg on macOS with Homebrew:
+
+```bash
+brew install ffmpeg
+```
+
+Intel macOS automatically selects PyTorch/Torchaudio 2.2.2 with matching NumPy, Numba,
+llvmlite, Transformers, and cryptography versions. Linux continues to use PyTorch/Torchaudio
+2.10.0. Do not upgrade these packages individually outside the lock file.
 
 ## 3. Installation and First-Time Setup
 
@@ -205,7 +215,7 @@ uv run local-transcriber transcribe-dir /path/to/media \
 
 A successful command immediately returns a batch ID and task IDs.
 
-### 7.2 Hosts Without User-Level systemd
+### 7.2 macOS or Hosts Without User-Level systemd
 
 Run the manager in a terminal tracked by a terminal multiplexer or service manager:
 

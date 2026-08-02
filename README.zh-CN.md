@@ -26,11 +26,11 @@ LocalTranscriber 是一个面向 CPU 环境的本地离线语音转写工具，�
 
 ## 系统要求
 
-- Linux（主要验证平台；其他平台欢迎测试与贡献）
+- Linux x86_64，或 Intel macOS x86_64（均已验证）
 - Python 3.11
 - [uv](https://docs.astral.sh/uv/)
 - FFmpeg 与 ffprobe
-- 支持 PyTorch CPU 版本的 x86_64 环境
+- 支持 PyTorch CPU 版本的 x86_64 环境；Apple Silicon 尚未验证
 - 足够的磁盘空间用于依赖、模型缓存和转写产物
 
 Ubuntu/Debian 可安装 FFmpeg：
@@ -39,6 +39,15 @@ Ubuntu/Debian 可安装 FFmpeg：
 sudo apt-get update
 sudo apt-get install -y ffmpeg
 ```
+
+macOS 可通过 Homebrew 安装 FFmpeg：
+
+```bash
+brew install ffmpeg
+```
+
+Intel macOS 使用仍提供 x86_64 wheel 的兼容依赖组，包括 PyTorch/Torchaudio 2.2.2；
+Linux 继续使用 PyTorch/Torchaudio 2.10.0。`uv sync --locked` 会自动选择当前平台对应版本。
 
 ## 安装
 
@@ -111,7 +120,8 @@ uv run local-transcriber batch cancel <batch-id> --runtime-dir var/work --json
 uv run local-transcriber batch retry <batch-id> --runtime-dir var/work --json
 ```
 
-有用户级 systemd 时可用 `worker start/status/stop/restart`；无 systemd 环境应以受跟踪的 `worker run` 前台进程运行管理器，不要使用裸 `&` 或 `nohup`。
+Linux 有用户级 systemd 时可用 `worker start/status/stop/restart`；macOS 和其他无 systemd
+环境应以受跟踪的 `worker run` 前台进程运行管理器，不要使用裸 `&` 或 `nohup`。
 
 指定中文：
 
